@@ -100,7 +100,7 @@ export function OverdueInvoicesPanel() {
             subject: j.subject ?? "",
             body: j.body ?? "",
           },
-        }));
+        } as Record<string, DraftState>));
       } else {
         setDrafts((d) => ({
           ...d,
