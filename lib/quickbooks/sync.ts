@@ -1,4 +1,8 @@
-import { fetchCustomerEmail, fetchUnpaidInvoices, type QbInvoice } from "@/lib/quickbooks/client";
+import {
+  fetchCustomerEmail,
+  fetchUnpaidInvoices,
+  type QbInvoice,
+} from "@/lib/quickbooks/client";
 import type { InvoiceStatus, QuickBooksToken } from "@/lib/types";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -14,7 +18,49 @@ export type InvoiceUpsertRow = {
   days_overdue: number;
   status: InvoiceStatus;
   recovery_mode: boolean;
+  line_items: string | null;
+  memo: string | null;
 };
+
+/** QuickBooks Invoice.CustomerMemo (invoice-level note). */
+export function customerMemoFromQbInvoice(inv: QbInvoice): string | null {
+  const cm = inv.CustomerMemo;
+  if (!cm || typeof cm !== "object") return null;
+  const m = cm as { value?: string; Value?: string };
+  const raw = (m.value ?? m.Value ?? "").trim();
+  return raw.length ? raw : null;
+}
+
+/**
+ * Concatenate Line[].Description with optional (Qty × UnitPrice) from SalesItemLineDetail.
+ * Skips subtotal-only lines.
+ */
+export function formatLineItemsFromQbInvoice(inv: QbInvoice): string {
+  const lines = inv.Line;
+  if (!lines?.length) return "";
+  const parts: string[] = [];
+  for (const line of lines) {
+    if (!line || typeof line !== "object") continue;
+    if (line.DetailType === "SubTotalLineDetail") continue;
+
+    const desc =
+      typeof line.Description === "string" ? line.Description.trim() : "";
+    const sil = line.SalesItemLineDetail;
+    let segment = desc;
+
+    if (sil) {
+      const qty = sil.Qty != null ? Number(sil.Qty) : NaN;
+      const unit = sil.UnitPrice != null ? Number(sil.UnitPrice) : NaN;
+      if (!Number.isNaN(qty) && !Number.isNaN(unit)) {
+        const suffix = ` (${qty} × $${unit.toFixed(2)})`;
+        segment = segment ? segment + suffix : `Line item${suffix}`;
+      }
+    }
+
+    if (segment) parts.push(segment);
+  }
+  return parts.join("\n");
+}
 
 /** Keep local “reminder sent” state across syncs until the invoice is paid in QuickBooks. */
 async function applyReminderSentPreservation(
@@ -75,6 +121,9 @@ export async function mapInvoiceToRow(
   }
   if (!email) email = "unknown@client.local";
 
+  const lineItemsText = formatLineItemsFromQbInvoice(inv);
+  const memoText = customerMemoFromQbInvoice(inv);
+
   return {
     user_id: userId,
     quickbooks_invoice_id: inv.Id,
@@ -86,6 +135,8 @@ export async function mapInvoiceToRow(
     days_overdue: daysOverdue,
     status,
     recovery_mode: daysOverdue >= 60,
+    line_items: lineItemsText ? lineItemsText : null,
+    memo: memoText,
   };
 }
 

@@ -26,6 +26,8 @@ export async function draftReminderEmail(
     | "days_overdue"
     | "due_date"
     | "quickbooks_invoice_id"
+    | "line_items"
+    | "memo"
   >,
   ownerName: string
 ): Promise<{ subject: string; body: string }> {
@@ -38,6 +40,16 @@ export async function draftReminderEmail(
         ? "60+ days: firm, professional, clear consequences without threats."
         : "30+ days: friendly, casual, assume good intent — a gentle nudge from the owner.";
 
+  const memoBlock =
+    invoice.memo?.trim() ?
+      `Invoice memo (shown to customer in QuickBooks): ${invoice.memo.trim()}`
+    : "Invoice memo: (none)";
+
+  const linesBlock =
+    invoice.line_items?.trim() ?
+      `Work / line items (from QuickBooks invoice lines — reference this so the email reflects actual services or products, not only the total):\n${invoice.line_items.trim()}`
+    : "Line items: (not itemized on this invoice — refer to amount and invoice reference only).";
+
   const prompt = `You are helping ${ownerName} write a short payment reminder for their small professional services business.
 
 Invoice reference: ${invoice.quickbooks_invoice_id}
@@ -46,10 +58,15 @@ Amount due: $${Number(invoice.amount).toFixed(2)}
 Due date: ${invoice.due_date}
 Days overdue: ${invoice.days_overdue}
 
+${memoBlock}
+
+${linesBlock}
+
 Tone guidance: ${tier}
 
 Requirements:
 - Sound like ${ownerName} wrote it personally — warm human voice, not marketing or automated.
+- Where line items or memo describe specific work, naturally mention that substance (what was done or sold), not only the invoice number and dollar amount.
 - No legalese unless tier is 90+ (then brief and factual).
 - 2–4 short paragraphs max.
 - Include a clear ask to pay or reply with questions.

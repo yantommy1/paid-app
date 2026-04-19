@@ -41,4 +41,8 @@ export type InvoiceRow = {
   recovery_mode: boolean;
   reminder_pending: boolean;
   reminder_draft: string | null;
+  /** QuickBooks Line descriptions (work performed), synced from sync */
+  line_items: string | null;
+  /** QuickBooks CustomerMemo */
+  memo: string | null;
 };

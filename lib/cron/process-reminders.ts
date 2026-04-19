@@ -67,6 +67,8 @@ export async function processDailyReminders(
         days_overdue: inv.days_overdue,
         due_date: inv.due_date,
         quickbooks_invoice_id: inv.quickbooks_invoice_id,
+        line_items: inv.line_items ?? null,
+        memo: inv.memo ?? null,
       },
       ownerName
     );
