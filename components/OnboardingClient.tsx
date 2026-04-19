@@ -106,12 +106,37 @@ export function OnboardingClient({ initialStep, email }: Props) {
             Open Marketplace listing
           </Link>
           <p className="mt-4 text-sm text-slate-600">
-            After install, open Gmail → right sidebar → Paid. Link your account by
-            visiting{" "}
-            <Link href="/api/auth/session-token" className="text-paid-brand underline">
-              session token
+            Create a long-lived API key (works until you rotate it), then paste it into
+            the add-on settings in Gmail.
+          </p>
+          <button
+            type="button"
+            className="mt-3 rounded-lg bg-paid-brand px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800"
+            onClick={async () => {
+              const res = await fetch("/api/auth/api-key", { method: "POST" });
+              const j = (await res.json()) as { api_key?: string; error?: string };
+              if (res.ok && j.api_key) {
+                try {
+                  await navigator.clipboard.writeText(j.api_key);
+                } catch {
+                  /* ignore */
+                }
+                window.alert(
+                  "API key copied to clipboard. Paste it into Paid in Gmail (sidebar → settings)."
+                );
+              } else {
+                window.alert(j.error ?? "Could not create API key.");
+              }
+            }}
+          >
+            Generate and copy API key
+          </button>
+          <p className="mt-3 text-sm text-slate-600">
+            Or{" "}
+            <Link href="/api/auth/api-key?format=plain" className="text-paid-brand underline">
+              view your current key
             </Link>{" "}
-            (copy the JWT for the Add-On script).
+            (plain text).
           </p>
         </li>
 

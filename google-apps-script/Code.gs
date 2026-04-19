@@ -3,13 +3,13 @@
  *
  * Configure in Script properties (Project Settings):
  *   PAID_API_BASE  e.g. https://getpaid.ai
- *   PAID_JWT       Supabase access JWT from GET /api/auth/session-token (plain text, browser logged in)
+ *   PAID_API_KEY   Long-lived key from POST /api/auth/api-key (browser, logged in) — see onboarding
  *
  * Or use the “Connect Paid” card on first load to paste both values.
  */
 
 var PROP_API = 'PAID_API_BASE';
-var PROP_JWT = 'PAID_JWT';
+var PROP_API_KEY = 'PAID_API_KEY';
 
 /** Right-rail home: full outstanding view + cohort totals + Send All Reminders. */
 function onGmailHomePage(e) {
@@ -26,24 +26,24 @@ function onGmailComposeOpen(e) {
   return buildContextualForCompose_(e);
 }
 
-/** Save config form (API base + JWT). */
+/** Save config form (API base + Paid API key). */
 function onSavePaidSettings(e) {
   var form =
     e.formInputs || (e.commonEventObject && e.commonEventObject.formInputs) || {};
   var base = getFormText_(form, 'api_base');
-  var jwt = getFormText_(form, 'jwt');
+  var apiKey = getFormText_(form, 'api_key');
   if (base) PropertiesService.getUserProperties().setProperty(PROP_API, trimSlash_(base));
-  if (jwt) PropertiesService.getUserProperties().setProperty(PROP_JWT, jwt.trim());
+  if (apiKey) PropertiesService.getUserProperties().setProperty(PROP_API_KEY, apiKey.trim());
   return CardService.newActionResponseBuilder()
     .setNavigation(CardService.newNavigation().updateCard(buildHomePage_(e)))
     .build();
 }
 
-/** Clears PAID_API_BASE and PAID_JWT user properties. Run manually from the script editor (Run → clearPaidSettings) to reset stored credentials. */
+/** Clears PAID_API_BASE and PAID_API_KEY user properties. Run manually from the script editor (Run → clearPaidSettings) to reset stored credentials. */
 function clearPaidSettings() {
   var p = PropertiesService.getUserProperties();
   p.deleteProperty(PROP_API);
-  p.deleteProperty(PROP_JWT);
+  p.deleteProperty(PROP_API_KEY);
 }
 
 /** Send one reminder via backend (uses stored Gmail refresh on server). */
@@ -112,7 +112,7 @@ function buildHomePage_(e) {
     CardService.newCardHeader().setTitle('Paid').setSubtitle('Outstanding invoices')
   );
 
-  if (!getJwt_() || !getApiBase_()) {
+  if (!getApiKey_() || !getApiBase_()) {
     return card.addSection(buildSettingsSection_()).build();
   }
 
@@ -124,7 +124,7 @@ function buildHomePage_(e) {
         .addSection(
           CardService.newCardSection().addWidget(
             CardService.newTextParagraph().setText(
-              'Could not load data. Check token and API base. ' + sum.body
+              'Could not load data. Check API key and API base. ' + sum.body
             )
           )
         )
@@ -209,10 +209,10 @@ function buildHomePage_(e) {
               )
               .addButton(
                 CardService.newTextButton()
-                  .setText('Reconnect / token')
+                  .setText('Get API key')
                   .setOpenLink(
                     CardService.newOpenLink().setUrl(
-                      getApiBase_() + '/api/auth/session-token'
+                      getApiBase_() + '/api/auth/api-key?format=plain'
                     )
                   )
               )
@@ -247,7 +247,7 @@ function buildSettingsSection_() {
     .setHeader('Connect Paid')
     .addWidget(
       CardService.newTextParagraph().setText(
-        'Paste your API base (e.g. https://getpaid.ai) and Supabase JWT from your browser after signing in.'
+        'Paste your API base (e.g. https://getpaid.ai) and Paid API key (generate in the web app after signing in).'
       )
     )
     .addWidget(
@@ -256,7 +256,9 @@ function buildSettingsSection_() {
         .setTitle('API base URL')
         .setHint('https://getpaid.ai')
     )
-    .addWidget(CardService.newTextInput().setFieldName('jwt').setTitle('Bearer token (JWT)'))
+    .addWidget(
+      CardService.newTextInput().setFieldName('api_key').setTitle('Paid API key (Bearer)')
+    )
     .addWidget(
       CardService.newButtonSet().addButton(
         CardService.newTextButton()
@@ -267,7 +269,7 @@ function buildSettingsSection_() {
 }
 
 function buildContextualForMessage_(e) {
-  if (!getJwt_() || !getApiBase_()) {
+  if (!getApiKey_() || !getApiBase_()) {
     var c = CardService.newCardBuilder().setHeader(CardService.newCardHeader().setTitle('Paid'));
     c.addSection(buildSettingsSection_());
     return c.build();
@@ -284,7 +286,7 @@ function buildContextualForMessage_(e) {
 }
 
 function buildContextualForCompose_(e) {
-  if (!getJwt_() || !getApiBase_()) {
+  if (!getApiKey_() || !getApiBase_()) {
     var c = CardService.newCardBuilder().setHeader(CardService.newCardHeader().setTitle('Paid'));
     c.addSection(buildSettingsSection_());
     return c.build();
@@ -436,14 +438,14 @@ function buildNotifyCard_(text) {
 
 function paidFetch_(path, opts) {
   var base = getApiBase_();
-  var jwt = getJwt_();
-  if (!base || !jwt) throw new Error('Configure PAID_API_BASE and PAID_JWT');
+  var apiKey = getApiKey_();
+  if (!base || !apiKey) throw new Error('Configure PAID_API_BASE and PAID_API_KEY');
 
   var url = base + path;
   var params = {
     method: opts.method || 'get',
     contentType: 'application/json',
-    headers: { Authorization: 'Bearer ' + jwt },
+    headers: { Authorization: 'Bearer ' + apiKey },
     muteHttpExceptions: true,
   };
   if (opts.payload) params.payload = opts.payload;
@@ -460,8 +462,8 @@ function getApiBase_() {
   );
 }
 
-function getJwt_() {
-  return PropertiesService.getUserProperties().getProperty(PROP_JWT) || '';
+function getApiKey_() {
+  return PropertiesService.getUserProperties().getProperty(PROP_API_KEY) || '';
 }
 
 function trimSlash_(s) {
