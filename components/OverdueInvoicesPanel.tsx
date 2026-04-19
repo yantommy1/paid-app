@@ -95,7 +95,11 @@ export function OverdueInvoicesPanel() {
       if (j.subject && j.body) {
         setDrafts((d) => ({
           ...d,
-          [invoiceId]: { status: "ok", subject: j.subject, body: j.body },
+          [invoiceId]: {
+            status: "ok",
+            subject: j.subject ?? "",
+            body: j.body ?? "",
+          },
         }));
       } else {
         setDrafts((d) => ({

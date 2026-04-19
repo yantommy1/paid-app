@@ -1,11 +1,26 @@
 import { fetchCustomerEmail, fetchUnpaidInvoices, type QbInvoice } from "@/lib/quickbooks/client";
 import type { InvoiceStatus, QuickBooksToken } from "@/lib/types";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+/** Row shape passed to `invoices` upsert from QuickBooks sync */
+export type InvoiceUpsertRow = {
+  user_id: string;
+  quickbooks_invoice_id: string;
+  client_name: string;
+  client_email: string;
+  amount: number;
+  invoice_date: string;
+  due_date: string;
+  days_overdue: number;
+  status: InvoiceStatus;
+  recovery_mode: boolean;
+};
 
 /** Keep local “reminder sent” state across syncs until the invoice is paid in QuickBooks. */
 async function applyReminderSentPreservation(
   supabase: SupabaseClient,
   userId: string,
-  rows: Array<{ quickbooks_invoice_id: string; status: InvoiceStatus }>
+  rows: InvoiceUpsertRow[]
 ): Promise<void> {
   const ids = rows.map((r) => r.quickbooks_invoice_id);
   if (ids.length === 0) return;
@@ -28,7 +43,6 @@ async function applyReminderSentPreservation(
     }
   }
 }
-import type { SupabaseClient } from "@supabase/supabase-js";
 
 function daysBetween(from: Date, to: Date): number {
   const ms = to.getTime() - from.getTime();
@@ -46,18 +60,7 @@ export async function mapInvoiceToRow(
   inv: QbInvoice,
   userId: string,
   token: QuickBooksToken
-): Promise<{
-  user_id: string;
-  quickbooks_invoice_id: string;
-  client_name: string;
-  client_email: string;
-  amount: number;
-  invoice_date: string;
-  due_date: string;
-  days_overdue: number;
-  status: InvoiceStatus;
-  recovery_mode: boolean;
-}> {
+): Promise<InvoiceUpsertRow> {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const due = inv.DueDate ? new Date(inv.DueDate) : today;
@@ -93,7 +96,7 @@ export async function syncInvoicesForUser(
 ): Promise<{ upserted: number; overdueCount: number }> {
   const invoices = await fetchUnpaidInvoices(token);
   let overdueCount = 0;
-  const rows = [];
+  const rows: InvoiceUpsertRow[] = [];
   for (const inv of invoices) {
     const row = await mapInvoiceToRow(inv, userId, token);
     if (
