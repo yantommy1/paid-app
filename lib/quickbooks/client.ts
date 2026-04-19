@@ -1,10 +1,19 @@
 import { getQuickBooksCompanyApiBase } from "@/lib/quickbooks/api-base";
 import type { QuickBooksToken } from "@/lib/types";
 
+export type QbSalesItemLineDetail = {
+  Qty?: number;
+  UnitPrice?: number;
+};
+
+/** One row in Invoice.Line — often SalesItemLineDetail with Description + Qty/UnitPrice */
 export type QbInvoiceLine = {
   Id?: string;
+  LineNum?: number;
   Amount?: number;
   DetailType?: string;
+  Description?: string;
+  SalesItemLineDetail?: QbSalesItemLineDetail;
 };
 
 export type QbInvoice = {
@@ -16,6 +25,8 @@ export type QbInvoice = {
   Balance?: number;
   CustomerRef?: { value: string; name?: string };
   BillEmail?: { Address?: string };
+  /** Invoice-level note to customer */
+  CustomerMemo?: { value?: string; Value?: string };
   Line?: QbInvoiceLine[];
 };
 

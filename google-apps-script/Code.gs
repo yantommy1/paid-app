@@ -6,6 +6,9 @@
  *   PAID_API_KEY   Long-lived key from POST /api/auth/api-key (browser, logged in) — see onboarding
  *
  * Or use the “Connect Paid” card on first load to paste both values.
+ *
+ * “Open in Gmail” uses CardService compose actions (scope gmail.addons.current.action.compose)
+ * to open a normal compose window prefilled via GmailApp.createDraft.
  */
 
 var PROP_API = 'PAID_API_BASE';
@@ -46,7 +49,74 @@ function clearPaidSettings() {
   p.deleteProperty(PROP_API_KEY);
 }
 
-/** Send one reminder via backend (uses stored Gmail refresh on server). */
+/**
+ * Step 1 — fetch AI draft from the backend and show preview (Send Now / Open in Gmail).
+ * Params: invoiceId, clientEmail (recipient for compose link).
+ */
+function onDraftReminder(e) {
+  var id = e.parameters && e.parameters.invoiceId;
+  var clientEmail = (e.parameters && e.parameters.clientEmail) || '';
+  if (!id) {
+    return CardService.newActionResponseBuilder()
+      .setNotification(CardService.newNotification().setText('Missing invoice id'))
+      .build();
+  }
+
+  try {
+    var res = paidFetch_('/api/invoices/draft-reminder', {
+      method: 'post',
+      payload: JSON.stringify({ invoiceId: id }),
+    });
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      return CardService.newActionResponseBuilder()
+        .setNotification(
+          CardService.newNotification().setText('Draft failed: ' + res.body)
+        )
+        .build();
+    }
+    var data = JSON.parse(res.body);
+    var subject = data.subject || '';
+    var body = data.body || '';
+    cacheReminderDraft_(id, clientEmail, subject, body);
+    return CardService.newActionResponseBuilder()
+      .setNavigation(CardService.newNavigation().pushCard(buildDraftPreviewCard_(String(id))))
+      .build();
+  } catch (err) {
+    return CardService.newActionResponseBuilder()
+      .setNotification(CardService.newNotification().setText(String(err)))
+      .build();
+  }
+}
+
+/**
+ * Open preview for a reminder already cached (e.g. 30+ day review queue after “Send all”).
+ * Params: invoiceId only.
+ */
+function onShowQueuedDraft(e) {
+  var id = e.parameters && e.parameters.invoiceId;
+  if (!id) {
+    return CardService.newActionResponseBuilder()
+      .setNotification(CardService.newNotification().setText('Missing invoice id'))
+      .build();
+  }
+  if (!loadReminderDraft_(id)) {
+    return CardService.newActionResponseBuilder()
+      .setNotification(
+        CardService.newNotification().setText(
+          'Draft not found. Run “Send all reminders” again from the home card.'
+        )
+      )
+      .build();
+  }
+  return CardService.newActionResponseBuilder()
+    .setNavigation(CardService.newNavigation().pushCard(buildDraftPreviewCard_(String(id))))
+    .build();
+}
+
+/**
+ * Step 2 — send the cached draft via backend (Gmail on server).
+ * Params: invoiceId (subject/body read from cache).
+ */
 function onSendReminder(e) {
   var id = e.parameters && e.parameters.invoiceId;
   if (!id) {
@@ -55,14 +125,30 @@ function onSendReminder(e) {
       .build();
   }
 
+  var draft = loadReminderDraft_(id);
+  if (!draft || !draft.subject || !draft.body) {
+    return CardService.newActionResponseBuilder()
+      .setNotification(
+        CardService.newNotification().setText('Draft expired. Generate the draft again.')
+      )
+      .build();
+  }
+
   try {
     var res = paidFetch_('/api/invoices/send-reminder', {
       method: 'post',
-      payload: JSON.stringify({ invoiceId: id, channel: 'addon' }),
+      payload: JSON.stringify({
+        invoiceId: id,
+        subject: draft.subject,
+        body: draft.body,
+        channel: 'addon',
+      }),
     });
     if (res.statusCode >= 200 && res.statusCode < 300) {
+      clearReminderDraft_(id);
       return CardService.newActionResponseBuilder()
         .setNotification(CardService.newNotification().setText('Reminder sent.'))
+        .setNavigation(CardService.newNavigation().popCard())
         .build();
     }
     return CardService.newActionResponseBuilder()
@@ -100,9 +186,109 @@ function onQueueAllReminders(e) {
   }
 }
 
-/** Send reminder for one item from the review queue (server drafts already stored). */
-function onSendFromReview(e) {
-  return onSendReminder(e);
+function reminderDraftKey_(invoiceId) {
+  return 'paid_reminder_draft_' + String(invoiceId);
+}
+
+function cacheReminderDraft_(invoiceId, clientEmail, subject, body) {
+  PropertiesService.getUserProperties().setProperty(
+    reminderDraftKey_(invoiceId),
+    JSON.stringify({
+      clientEmail: clientEmail || '',
+      subject: subject || '',
+      body: body || '',
+    })
+  );
+}
+
+function loadReminderDraft_(invoiceId) {
+  var raw = PropertiesService.getUserProperties().getProperty(reminderDraftKey_(invoiceId));
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch (err) {
+    return null;
+  }
+}
+
+function clearReminderDraft_(invoiceId) {
+  PropertiesService.getUserProperties().deleteProperty(reminderDraftKey_(invoiceId));
+}
+
+function truncateForCard_(s, maxLen) {
+  if (!s || s.length <= maxLen) return s || '';
+  return s.substring(0, maxLen) + '\n…';
+}
+
+/**
+ * Native Gmail compose (standalone draft) — uses scope gmail.addons.current.action.compose.
+ * Data comes from the cached reminder draft for this invoice.
+ */
+function onOpenPaidCompose(e) {
+  if (e.gmail && e.gmail.accessToken) {
+    GmailApp.setCurrentMessageAccessToken(e.gmail.accessToken);
+  }
+  var id = e.parameters && e.parameters.invoiceId;
+  var cached = id ? loadReminderDraft_(id) : null;
+  var to = (cached && cached.clientEmail) || '';
+  var subj = (cached && cached.subject) || '';
+  var body = (cached && cached.body) || '';
+  if (!cached) {
+    subj = 'Paid — draft unavailable';
+    body = 'Return to the Paid add-on and generate the draft again.';
+  }
+  var gmailDraft = GmailApp.createDraft(to, subj, body);
+  return CardService.newComposeActionResponseBuilder().setGmailDraft(gmailDraft).build();
+}
+
+function buildDraftPreviewCard_(invoiceId) {
+  var draft = loadReminderDraft_(invoiceId);
+  var subj = draft && draft.subject ? draft.subject : '';
+  var body = draft && draft.body ? draft.body : '';
+
+  var card = CardService.newCardBuilder().setHeader(
+    CardService.newCardHeader()
+      .setTitle('Review draft')
+      .setSubtitle('Edit in Gmail or send from here')
+  );
+
+  card.addSection(
+    CardService.newCardSection()
+      .setHeader('Subject')
+      .addWidget(CardService.newTextParagraph().setText(subj || '(empty)'))
+  );
+  card.addSection(
+    CardService.newCardSection()
+      .setHeader('Body')
+      .addWidget(CardService.newTextParagraph().setText(truncateForCard_(body, 4000)))
+  );
+
+  card.addSection(
+    CardService.newCardSection().addWidget(
+      CardService.newButtonSet()
+        .addButton(
+          CardService.newTextButton()
+            .setText('Open in Gmail')
+            .setComposeAction(
+              CardService.newAction()
+                .setFunctionName('onOpenPaidCompose')
+                .setParameters({ invoiceId: String(invoiceId) }),
+              CardService.ComposedEmailType.STANDALONE_DRAFT
+            )
+        )
+        .addButton(
+          CardService.newTextButton()
+            .setText('Send Now')
+            .setOnClickAction(
+              CardService.newAction()
+                .setFunctionName('onSendReminder')
+                .setParameters({ invoiceId: String(invoiceId) })
+            )
+        )
+    )
+  );
+
+  return card.build();
 }
 
 // --- UI builders ---
@@ -174,9 +360,12 @@ function buildHomePage_(e) {
             CardService.newTextButton()
               .setText(row.client_name + ' · ' + fmtMoney_(row.amount) + ' · ' + row.days_overdue + 'd')
               .setOnClickAction(
-                CardService.newAction().setFunctionName('onSendReminder').setParameters({
-                  invoiceId: String(row.id),
-                })
+                CardService.newAction()
+                  .setFunctionName('onDraftReminder')
+                  .setParameters({
+                    invoiceId: String(row.id),
+                    clientEmail: String(row.client_email || ''),
+                  })
               )
               .setTextButtonStyle(CardService.TextButtonStyle.TEXT)
           )
@@ -368,8 +557,11 @@ function buildCardsForEmails_(emails) {
               .setText('Send reminder')
               .setOnClickAction(
                 CardService.newAction()
-                  .setFunctionName('onSendReminder')
-                  .setParameters({ invoiceId: String(row.id) })
+                  .setFunctionName('onDraftReminder')
+                  .setParameters({
+                    invoiceId: String(row.id),
+                    clientEmail: String(row.client_email || ''),
+                  })
               )
           )
         );
@@ -389,7 +581,9 @@ function buildCardsForEmails_(emails) {
 
 function buildReviewQueueCard_(queue) {
   var card = CardService.newCardBuilder().setHeader(
-    CardService.newCardHeader().setTitle('Review reminders').setSubtitle('Approve each send')
+    CardService.newCardHeader()
+      .setTitle('Review reminders')
+      .setSubtitle('Preview each draft before sending')
   );
   if (!queue.length) {
     card.addSection(
@@ -401,6 +595,7 @@ function buildReviewQueueCard_(queue) {
   }
 
   queue.forEach(function (item, i) {
+    cacheReminderDraft_(item.invoiceId, item.clientEmail, item.subject, item.body);
     var sec = CardService.newCardSection().setHeader(
       '#' + (i + 1) + ' ' + item.clientName + ' · ' + item.daysOverdue + 'd'
     );
@@ -411,11 +606,11 @@ function buildReviewQueueCard_(queue) {
     sec.addWidget(
       CardService.newButtonSet().addButton(
         CardService.newTextButton()
-          .setText('Send this one')
+          .setText('Review & send')
           .setOnClickAction(
             CardService.newAction()
-              .setFunctionName('onSendReminder')
-              .setParameters({ invoiceId: item.invoiceId })
+              .setFunctionName('onShowQueuedDraft')
+              .setParameters({ invoiceId: String(item.invoiceId) })
           )
       )
     );

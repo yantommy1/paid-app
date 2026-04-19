@@ -27,6 +27,7 @@ export async function POST(request: NextRequest) {
   const queue: {
     invoiceId: string;
     clientName: string;
+    clientEmail: string;
     amount: number;
     daysOverdue: number;
     subject: string;
@@ -48,6 +49,7 @@ export async function POST(request: NextRequest) {
       queue.push({
         invoiceId: inv.id,
         clientName: inv.client_name,
+        clientEmail: inv.client_email,
         amount: Number(inv.amount),
         daysOverdue: inv.days_overdue,
         subject: draft.subject,
