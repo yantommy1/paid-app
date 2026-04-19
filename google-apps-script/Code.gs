@@ -3,7 +3,7 @@
  *
  * Configure in Script properties (Project Settings):
  *   PAID_API_BASE  e.g. https://getpaid.ai
- *   PAID_JWT       Supabase access token from GET /api/auth/session-token (browser, logged in)
+ *   PAID_JWT       Supabase access JWT from GET /api/auth/session-token (plain text, browser logged in)
  *
  * Or use the “Connect Paid” card on first load to paste both values.
  */
@@ -37,6 +37,13 @@ function onSavePaidSettings(e) {
   return CardService.newActionResponseBuilder()
     .setNavigation(CardService.newNavigation().updateCard(buildHomePage_(e)))
     .build();
+}
+
+/** Clears PAID_API_BASE and PAID_JWT user properties. Run manually from the script editor (Run → clearPaidSettings) to reset stored credentials. */
+function clearPaidSettings() {
+  var p = PropertiesService.getUserProperties();
+  p.deleteProperty(PROP_API);
+  p.deleteProperty(PROP_JWT);
 }
 
 /** Send one reminder via backend (uses stored Gmail refresh on server). */
@@ -203,7 +210,11 @@ function buildHomePage_(e) {
               .addButton(
                 CardService.newTextButton()
                   .setText('Reconnect / token')
-                  .setOpenLink(CardService.newOpenLink().setUrl(getApiBase_() + '/api/auth/session-token'))
+                  .setOpenLink(
+                    CardService.newOpenLink().setUrl(
+                      getApiBase_() + '/api/auth/session-token'
+                    )
+                  )
               )
           )
       )

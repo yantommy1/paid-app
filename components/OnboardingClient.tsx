@@ -111,7 +111,7 @@ export function OnboardingClient({ initialStep, email }: Props) {
             <Link href="/api/auth/session-token" className="text-paid-brand underline">
               session token
             </Link>{" "}
-            (copy JWT for the Add-On script).
+            (copy the JWT for the Add-On script).
           </p>
         </li>
 
