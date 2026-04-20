@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { DashboardHeaderActions } from "@/components/DashboardHeaderActions";
 import { OverdueInvoicesPanel } from "@/components/OverdueInvoicesPanel";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 export default async function DashboardPage() {
@@ -14,18 +15,11 @@ export default async function DashboardPage() {
 
   const { data: profile } = await supabase
     .from("users")
-    .select("onboarding_completed, quickbooks_token, gmail_token")
+    .select("onboarding_completed")
     .eq("id", user.id)
     .maybeSingle();
 
   if (!profile || profile.onboarding_completed === false) {
-    redirect("/onboarding");
-  }
-
-  if (
-    profile.onboarding_completed === true &&
-    (profile.quickbooks_token == null || profile.gmail_token == null)
-  ) {
     redirect("/onboarding");
   }
 
@@ -34,7 +28,12 @@ export default async function DashboardPage() {
       <div className="mx-auto max-w-5xl">
         <header className="mb-10 flex flex-wrap items-center justify-between gap-4 border-b border-white/[0.08] pb-8">
           <div>
-            <span className="font-display text-2xl tracking-tight">Paid</span>
+            <Link
+              href="/"
+              className="font-display text-2xl tracking-tight text-paid-mist transition hover:text-[#00E5A0]"
+            >
+              Paid
+            </Link>
             <p className="mt-1 text-sm text-paid-mist/50">
               Signed in as {user.email ?? ""}
             </p>

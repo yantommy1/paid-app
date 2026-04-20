@@ -1,4 +1,6 @@
+import { requireUserFromRequest } from "@/lib/api/require-user-request";
 import { getAppUrl } from "@/lib/env/app-url";
+import { isSafeInternalPath } from "@/lib/http/safe-internal-path";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { QuickBooksToken } from "@/lib/types";
@@ -35,6 +37,15 @@ export async function GET(request: NextRequest) {
       path: "/",
       maxAge: 600,
     });
+    const returnTo = url.searchParams.get("return_to");
+    if (returnTo && isSafeInternalPath(returnTo)) {
+      cookieStore.set("qb_oauth_return", returnTo, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        path: "/",
+        maxAge: 600,
+      });
+    }
     const redirectUri = `${getAppUrl()}/api/auth/quickbooks`;
     const params = new URLSearchParams({
       client_id: process.env.QUICKBOOKS_CLIENT_ID!,
@@ -174,5 +185,31 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: upErr.message }, { status: 500 });
   }
 
-  return NextResponse.redirect(`${getAppUrl()}/onboarding?step=quickbooks-done`);
+  const cookieStoreAfter = await cookies();
+  const returnPath = cookieStoreAfter.get("qb_oauth_return")?.value;
+  cookieStoreAfter.delete("qb_oauth_return");
+
+  let next = `${getAppUrl()}/onboarding?step=quickbooks-done`;
+  if (returnPath && isSafeInternalPath(returnPath)) {
+    const sep = returnPath.includes("?") ? "&" : "?";
+    next = `${getAppUrl()}${returnPath}${sep}connected=quickbooks`;
+  }
+  return NextResponse.redirect(next);
+}
+
+export async function DELETE(request: NextRequest) {
+  const ctx = await requireUserFromRequest(request);
+  if (ctx.response) return ctx.response;
+
+  const admin = createAdminClient();
+  const { error: upErr } = await admin
+    .from("users")
+    .update({ quickbooks_token: null })
+    .eq("id", ctx.user.id);
+
+  if (upErr) {
+    return NextResponse.json({ error: upErr.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true });
 }

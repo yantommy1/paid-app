@@ -25,6 +25,11 @@ type DraftState =
   | { status: "ok"; subject: string; body: string }
   | { status: "error"; message: string };
 
+const MSG_RECONNECT_QB =
+  "Reconnect QuickBooks in Settings to sync invoices.";
+const MSG_RECONNECT_GMAIL =
+  "Reconnect Gmail in Settings to send reminders.";
+
 /** Avoid showing API paths, env keys, or stack details to end users. */
 function userFacingError(raw: string | undefined, fallback: string): string {
   if (!raw || typeof raw !== "string") return fallback;
@@ -34,6 +39,38 @@ function userFacingError(raw: string | undefined, fallback: string): string {
   }
   if (t.length > 280) return fallback;
   return t;
+}
+
+function syncIntegrationMessage(raw: string | undefined): string {
+  if (!raw || typeof raw !== "string") return MSG_RECONNECT_QB;
+  const t = raw.toLowerCase();
+  if (
+    t.includes("quickbooks not connected") ||
+    t.includes("quickbooks token invalid") ||
+    (t.includes("quickbooks") && t.includes("reconnect"))
+  ) {
+    return MSG_RECONNECT_QB;
+  }
+  return userFacingError(
+    raw,
+    "Sync failed. Check your QuickBooks connection and try again."
+  );
+}
+
+function sendGmailIntegrationMessage(raw: string | undefined): string {
+  if (!raw || typeof raw !== "string") return MSG_RECONNECT_GMAIL;
+  const t = raw.toLowerCase();
+  if (
+    t.includes("gmail not connected") ||
+    t.includes("token expired") ||
+    (t.includes("gmail") && t.includes("reconnect"))
+  ) {
+    return MSG_RECONNECT_GMAIL;
+  }
+  return userFacingError(
+    raw,
+    "Could not send. Check your Gmail connection and try again."
+  );
 }
 
 function reminderAlreadySent(inv: Invoice): boolean {
@@ -137,9 +174,8 @@ export function OverdueInvoicesPanel() {
       if (!res.ok) {
         setSyncState("error");
         setSyncError(
-          userFacingError(
-            typeof j.error === "string" ? j.error : undefined,
-            "Sync failed. Check your QuickBooks connection and try again."
+          syncIntegrationMessage(
+            typeof j.error === "string" ? j.error : undefined
           )
         );
         return;
@@ -234,9 +270,8 @@ export function OverdueInvoicesPanel() {
           ...d,
           [invoiceId]: {
             status: "error",
-            message: userFacingError(
-              typeof j.error === "string" ? j.error : undefined,
-              "Could not send. Check your Gmail connection and try again."
+            message: sendGmailIntegrationMessage(
+              typeof j.error === "string" ? j.error : undefined
             ),
           },
         }));

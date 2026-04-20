@@ -17,10 +17,10 @@ export function DashboardHeaderActions() {
   return (
     <div className="flex flex-wrap items-center gap-4 sm:gap-6">
       <Link
-        href="/onboarding"
+        href="/settings"
         className="text-sm font-medium text-paid-mist/75 transition hover:text-[#00E5A0]"
       >
-        Setup &amp; integrations
+        Setup & integrations
       </Link>
       <button
         type="button"
