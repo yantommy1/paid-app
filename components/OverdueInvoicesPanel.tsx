@@ -64,15 +64,12 @@ function formatDue(iso: string): string {
   }
 }
 
-function gmailComposeUrl(to: string, subject: string, body: string): string {
-  const u = new URL("https://mail.google.com/mail/");
-  u.searchParams.set("view", "cm");
-  u.searchParams.set("fs", "1");
-  u.searchParams.set("to", to);
-  u.searchParams.set("su", subject);
-  u.searchParams.set("body", body);
-  return u.toString();
-}
+type ComposeState = {
+  invoiceId: string;
+  to: string;
+  subject: string;
+  body: string;
+};
 
 const COHORT_SECTIONS: { key: CohortKey; title: string }[] = [
   { key: "d90", title: "90+ days overdue" },
@@ -104,6 +101,7 @@ export function OverdueInvoicesPanel() {
     "idle" | "syncing" | "success" | "error"
   >("idle");
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [compose, setCompose] = useState<ComposeState | null>(null);
 
   const loadInvoices = useCallback(async () => {
     setLoadingList(true);
@@ -249,6 +247,7 @@ export function OverdueInvoicesPanel() {
         delete next[invoiceId];
         return next;
       });
+      setCompose((c) => (c?.invoiceId === invoiceId ? null : c));
       await loadInvoices();
     } catch {
       setDrafts((d) => ({
@@ -290,8 +289,123 @@ export function OverdueInvoicesPanel() {
     );
   }
 
+  const fieldClass =
+    "w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-paid-mist outline-none placeholder:text-paid-mist/35 focus:border-[#00E5A0]/35 focus:ring-1 focus:ring-[#00E5A0]/20";
+
   return (
     <div className="mt-10 space-y-10">
+      {compose && (
+        <div
+          className="fixed inset-0 z-50 flex flex-col border border-white/10 bg-[#0A0A0F] shadow-[0_8px_40px_rgba(0,0,0,0.6)] sm:inset-auto sm:bottom-6 sm:right-6 sm:left-auto sm:top-auto sm:h-auto sm:max-h-[80vh] sm:w-[560px] sm:rounded-lg"
+          role="dialog"
+          aria-labelledby="compose-modal-title"
+          aria-modal="true"
+        >
+          <header className="flex shrink-0 items-center gap-3 border-b border-white/10 bg-[#1a1a2e] px-4 py-3">
+            <h2
+              id="compose-modal-title"
+              className="min-w-0 flex-1 truncate text-sm font-medium text-paid-mist"
+              title={compose.subject}
+            >
+              {compose.subject || "(No subject)"}
+            </h2>
+            <button
+              type="button"
+              onClick={() => setCompose(null)}
+              className="shrink-0 rounded p-1.5 text-paid-mist/60 transition hover:bg-white/5 hover:text-paid-mist"
+              aria-label="Close"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                className="h-5 w-5"
+                aria-hidden
+              >
+                <path d="M18 6 6 18M6 6l12 12" />
+              </svg>
+            </button>
+          </header>
+          <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 sm:max-h-[calc(80vh-8rem)]">
+            <div>
+              <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-paid-mist/50">
+                To
+              </label>
+              <input
+                type="email"
+                value={compose.to}
+                onChange={(e) =>
+                  setCompose((c) =>
+                    c ? { ...c, to: e.target.value } : null
+                  )
+                }
+                className={fieldClass}
+                autoComplete="off"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-paid-mist/50">
+                Subject
+              </label>
+              <input
+                type="text"
+                value={compose.subject}
+                onChange={(e) =>
+                  setCompose((c) =>
+                    c ? { ...c, subject: e.target.value } : null
+                  )
+                }
+                className={fieldClass}
+              />
+            </div>
+            <div className="flex min-h-0 flex-1 flex-col">
+              <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-paid-mist/50">
+                Body
+              </label>
+              <textarea
+                value={compose.body}
+                onChange={(e) =>
+                  setCompose((c) =>
+                    c ? { ...c, body: e.target.value } : null
+                  )
+                }
+                rows={12}
+                className={`min-h-[160px] flex-1 resize-y ${fieldClass} font-sans leading-relaxed`}
+              />
+            </div>
+          </div>
+          <footer className="flex shrink-0 flex-wrap gap-3 border-t border-white/10 bg-[#0A0A0F] p-4">
+            <button
+              type="button"
+              disabled={sendingId === compose.invoiceId}
+              onClick={() =>
+                void sendReminder(
+                  compose.invoiceId,
+                  compose.subject,
+                  compose.body
+                )
+              }
+              className="rounded-md bg-[#00E5A0] px-4 py-2 text-sm font-semibold text-paid-ink transition hover:brightness-110 disabled:opacity-50"
+            >
+              {sendingId === compose.invoiceId
+                ? "Sending…"
+                : "Send via Paid"}
+            </button>
+            <button
+              type="button"
+              disabled={sendingId === compose.invoiceId}
+              onClick={() => setCompose(null)}
+              className="rounded-md border border-white/15 px-4 py-2 text-sm font-medium text-paid-mist/85 transition hover:bg-white/[0.04] disabled:opacity-50"
+            >
+              Discard
+            </button>
+          </footer>
+        </div>
+      )}
+
       <section className="rounded-lg border border-white/[0.1] bg-white/[0.02] p-6 md:p-8">
         <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div className="grid flex-1 gap-6 sm:grid-cols-2">
@@ -459,18 +573,20 @@ export function OverdueInvoicesPanel() {
                             >
                               {sendingId === inv.id ? "Sending…" : "Send now"}
                             </button>
-                            <a
-                              href={gmailComposeUrl(
-                                inv.client_email,
-                                draft.subject,
-                                draft.body
-                              )}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setCompose({
+                                  invoiceId: inv.id,
+                                  to: inv.client_email,
+                                  subject: draft.subject,
+                                  body: draft.body,
+                                })
+                              }
                               className="rounded-md border border-white/20 px-4 py-2 text-sm font-semibold text-paid-mist transition hover:border-[#00E5A0]/45 hover:text-[#00E5A0]"
                             >
-                              Open in Gmail
-                            </a>
+                              Edit & Send
+                            </button>
                           </div>
                         </div>
                       )}
