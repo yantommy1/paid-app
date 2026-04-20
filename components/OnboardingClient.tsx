@@ -3,7 +3,33 @@
 import { createClient } from "@/lib/supabase/browser";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+
+/**
+ * Primary: connection flags from the database.
+ * Secondary: OAuth redirect ?step= hints (after Intuit/Google callback), never overrides DB.
+ */
+function computeOnboardingStep(
+  quickbooksConnected: boolean,
+  gmailConnected: boolean,
+  initialStep?: string
+): number {
+  let step: number;
+  if (quickbooksConnected && gmailConnected) {
+    step = 3;
+  } else if (quickbooksConnected) {
+    step = 2;
+  } else {
+    step = 1;
+  }
+  if (initialStep === "quickbooks-done" && quickbooksConnected) {
+    step = Math.max(step, 2);
+  }
+  if (initialStep === "gmail-done" && quickbooksConnected && gmailConnected) {
+    step = Math.max(step, 3);
+  }
+  return step;
+}
 
 function ConnectedPill() {
   return (
@@ -48,15 +74,44 @@ export function OnboardingClient({
   const router = useRouter();
   const [completing, setCompleting] = useState(false);
   const [completeError, setCompleteError] = useState<string | null>(null);
+  const [qbConn, setQbConn] = useState(quickbooksConnected);
+  const [gmConn, setGmConn] = useState(gmailConnected);
 
-  const step =
-    initialStep === "quickbooks-done"
-      ? 2
-      : initialStep === "gmail-done"
-        ? 3
-        : 1;
+  useEffect(() => {
+    setQbConn(quickbooksConnected);
+    setGmConn(gmailConnected);
+  }, [quickbooksConnected, gmailConnected]);
 
-  const canFinishSetup = quickbooksConnected && gmailConnected;
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/user/status", { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then(
+        (data: {
+          quickbooksConnected?: boolean;
+          gmailConnected?: boolean;
+        } | null) => {
+          if (cancelled || !data) return;
+          if (typeof data.quickbooksConnected === "boolean") {
+            setQbConn(data.quickbooksConnected);
+          }
+          if (typeof data.gmailConnected === "boolean") {
+            setGmConn(data.gmailConnected);
+          }
+        }
+      )
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const step = useMemo(
+    () => computeOnboardingStep(qbConn, gmConn, initialStep),
+    [qbConn, gmConn, initialStep]
+  );
+
+  const canFinishSetup = qbConn && gmConn;
 
   async function signOut() {
     const supabase = createClient();
@@ -126,7 +181,7 @@ export function OnboardingClient({
             Authorize read access to unpaid invoices. We sync your open balances
             securely.
           </p>
-          {quickbooksConnected ? (
+          {qbConn ? (
             <ConnectedPill />
           ) : (
             <a
@@ -148,7 +203,7 @@ export function OnboardingClient({
           <p className="mt-2 text-sm leading-relaxed text-paid-mist/65">
             Allow Paid to send reminders from your work Gmail address.
           </p>
-          {gmailConnected ? (
+          {gmConn ? (
             <ConnectedPill />
           ) : (
             <a

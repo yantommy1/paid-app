@@ -1,15 +1,18 @@
 /**
- * Paid — Gmail Workspace Add-On (Google Apps Script)
+ * Paid - Gmail Workspace Add-On (Google Apps Script)
  *
  * Configure in Script properties (Project Settings):
- *   PAID_API_BASE  e.g. https://getpaid.ai
- *   PAID_API_KEY   Paste the key from your browser (see Settings note — Open Link is blocked in Gmail)
+ *   PAID_API_BASE  e.g. https://paid-app.com
+ *   PAID_API_KEY   Paste the key from your browser (see Settings note - Open Link is blocked in Gmail)
  *
- * Or use the “Connect Paid” card on first load to paste both values.
+ * Or use the "Connect Paid" card on first load to paste both values.
  *
- * “Open in Gmail” uses CardService compose actions (scope gmail.addons.current.action.compose)
+ * "Edit in Gmail" uses CardService compose actions (scope gmail.addons.current.action.compose)
  * to open a normal compose window prefilled via GmailApp.createDraft.
  */
+
+/** Deployed add-on version (bump when publishing a new deployment). */
+var PAID_VERSION = '1.0.0';
 
 var PROP_API = 'PAID_API_BASE';
 var PROP_API_KEY = 'PAID_API_KEY';
@@ -48,7 +51,7 @@ function onSavePaidSettings(e) {
     .build();
 }
 
-/** Clears PAID_API_BASE and PAID_API_KEY user properties. Run manually from the script editor (Run → clearPaidSettings) to reset stored credentials. */
+/** Clears PAID_API_BASE and PAID_API_KEY user properties. Run manually from the script editor (Run > clearPaidSettings) to reset stored credentials. */
 function clearPaidSettings() {
   var p = PropertiesService.getUserProperties();
   p.deleteProperty(PROP_API);
@@ -56,7 +59,7 @@ function clearPaidSettings() {
 }
 
 /**
- * Step 1 — fetch AI draft from the backend and show preview (Send Now / Open in Gmail).
+ * Step 1 - fetch AI draft from the backend and show preview (Send Now / Edit in Gmail).
  * Params: invoiceId, clientEmail (recipient for compose link).
  */
 function onDraftReminder(e) {
@@ -76,7 +79,7 @@ function onDraftReminder(e) {
     if (res.statusCode < 200 || res.statusCode >= 300) {
       return CardService.newActionResponseBuilder()
         .setNotification(
-          CardService.newNotification().setText('Draft failed: ' + res.body)
+          CardService.newNotification().setText(userFacingApiError_(res.statusCode, res.body))
         )
         .build();
     }
@@ -86,17 +89,24 @@ function onDraftReminder(e) {
     cacheReminderDraft_(id, clientEmail, subject, body);
     return CardService.newActionResponseBuilder()
       .setNavigation(CardService.newNavigation().pushCard(buildDraftPreviewCard_(String(id))))
-      .setNotification(CardService.newNotification().setText('Draft ready'))
+      .setNotification(CardService.newNotification().setText('Reminder drafted. Review below.'))
       .build();
   } catch (err) {
     return CardService.newActionResponseBuilder()
-      .setNotification(CardService.newNotification().setText(String(err)))
+      .setNavigation(
+        CardService.newNavigation().updateCard(
+          buildNotifyCard_(
+            'Could not connect to Paid. Try again.',
+            'onRefreshHome'
+          )
+        )
+      )
       .build();
   }
 }
 
 /**
- * Open preview for a reminder already cached (e.g. 30+ day review queue after “Send all”).
+ * Open preview for a reminder already cached (e.g. 30+ day review queue after Send all).
  * Params: invoiceId only.
  */
 function onShowQueuedDraft(e) {
@@ -110,7 +120,7 @@ function onShowQueuedDraft(e) {
     return CardService.newActionResponseBuilder()
       .setNotification(
         CardService.newNotification().setText(
-          'Draft not found. Run “Send all reminders” again from the home card.'
+          'Draft not found. Run Send all reminders again from the home card.'
         )
       )
       .build();
@@ -121,7 +131,7 @@ function onShowQueuedDraft(e) {
 }
 
 /**
- * Step 2 — send the cached draft via backend (Gmail on server).
+ * Step 2 - send the cached draft via backend (Gmail on server).
  * Params: invoiceId (subject/body read from cache).
  */
 function onSendReminder(e) {
@@ -160,12 +170,19 @@ function onSendReminder(e) {
     }
     return CardService.newActionResponseBuilder()
       .setNotification(
-        CardService.newNotification().setText('Send failed: ' + res.body)
+        CardService.newNotification().setText(userFacingApiError_(res.statusCode, res.body))
       )
       .build();
   } catch (err) {
     return CardService.newActionResponseBuilder()
-      .setNotification(CardService.newNotification().setText(String(err)))
+      .setNavigation(
+        CardService.newNavigation().updateCard(
+          buildNotifyCard_(
+            'Could not connect to Paid. Try again.',
+            'onRefreshHome'
+          )
+        )
+      )
       .build();
   }
 }
@@ -177,7 +194,7 @@ function onQueueAllReminders(e) {
     if (res.statusCode < 200 || res.statusCode >= 300) {
       return CardService.newActionResponseBuilder()
         .setNotification(
-          CardService.newNotification().setText('Queue failed: ' + res.body)
+          CardService.newNotification().setText(userFacingApiError_(res.statusCode, res.body))
         )
         .build();
     }
@@ -188,7 +205,14 @@ function onQueueAllReminders(e) {
       .build();
   } catch (err) {
     return CardService.newActionResponseBuilder()
-      .setNotification(CardService.newNotification().setText(String(err)))
+      .setNavigation(
+        CardService.newNavigation().updateCard(
+          buildNotifyCard_(
+            'Could not connect to Paid. Try again.',
+            'onRefreshHome'
+          )
+        )
+      )
       .build();
   }
 }
@@ -224,28 +248,57 @@ function clearReminderDraft_(invoiceId) {
 
 function truncateForCard_(s, maxLen) {
   if (!s || s.length <= maxLen) return s || '';
-  return s.substring(0, maxLen) + '\n…';
+  return s.substring(0, maxLen) + '\n...';
 }
 
 /**
- * Native Gmail compose (standalone draft) — uses scope gmail.addons.current.action.compose.
+ * Native Gmail compose (standalone draft) - uses scope gmail.addons.current.action.compose.
  * Data comes from the cached reminder draft for this invoice.
  */
 function onOpenPaidCompose(e) {
-  if (e.gmail && e.gmail.accessToken) {
-    GmailApp.setCurrentMessageAccessToken(e.gmail.accessToken);
+  try {
+    if (e.gmail && e.gmail.accessToken) {
+      GmailApp.setCurrentMessageAccessToken(e.gmail.accessToken);
+    }
+    var id = e.parameters && e.parameters.invoiceId;
+    var cached = id ? loadReminderDraft_(id) : null;
+    var to = (cached && cached.clientEmail) || '';
+    var subj = (cached && cached.subject) || '';
+    var body = (cached && cached.body) || '';
+    if (!cached) {
+      subj = 'Paid - draft unavailable';
+      body = 'Please return to Paid and generate the draft again.';
+    }
+    var gmailDraft = GmailApp.createDraft(to, subj, body);
+    return CardService.newComposeActionResponseBuilder().setGmailDraft(gmailDraft).build();
+  } catch (err) {
+    return CardService.newActionResponseBuilder()
+      .setNotification(
+        CardService.newNotification().setText(
+          'Edit in Gmail is only available on desktop. Use Send Now instead.'
+        )
+      )
+      .build();
   }
-  var id = e.parameters && e.parameters.invoiceId;
-  var cached = id ? loadReminderDraft_(id) : null;
-  var to = (cached && cached.clientEmail) || '';
-  var subj = (cached && cached.subject) || '';
-  var body = (cached && cached.body) || '';
-  if (!cached) {
-    subj = 'Paid — draft unavailable';
-    body = 'Return to the Paid add-on and generate the draft again.';
-  }
-  var gmailDraft = GmailApp.createDraft(to, subj, body);
-  return CardService.newComposeActionResponseBuilder().setGmailDraft(gmailDraft).build();
+}
+
+/**
+ * Fallback when compose action cannot be attached (rare). Shows same mobile-safe message.
+ */
+function onEditInGmailUnavailable(e) {
+  return CardService.newActionResponseBuilder()
+    .setNotification(
+      CardService.newNotification().setText(
+        'Edit in Gmail is only available on desktop. Use Send Now instead.'
+      )
+    )
+    .build();
+}
+
+function truncateDraftBodyMobile_(body) {
+  if (!body) return '';
+  if (body.length <= 600) return body;
+  return body.substring(0, 600) + '... (truncated)';
 }
 
 function buildDraftPreviewCard_(invoiceId) {
@@ -254,47 +307,53 @@ function buildDraftPreviewCard_(invoiceId) {
   var body = draft && draft.body ? draft.body : '';
 
   var card = CardService.newCardBuilder().setHeader(
-    CardService.newCardHeader().setTitle('Draft').setSubtitle('Review before sending')
+    CardService.newCardHeader().setTitle('Draft').setSubtitle('Your AI-drafted reminder')
   );
 
   card.addSection(
     CardService.newCardSection()
       .addWidget(
         CardService.newDecoratedText()
-          .setText(subj || '—')
+          .setText(subj || 'No subject')
           .setWrapText(true)
       )
       .addWidget(
-        CardService.newTextParagraph().setText(truncateForCard_(body, 8000))
+        CardService.newTextParagraph().setText(truncateDraftBodyMobile_(body))
       )
   );
 
-  card.addSection(
-    CardService.newCardSection().addWidget(
-      CardService.newButtonSet()
-        .addButton(
-          CardService.newTextButton()
-            .setText('Send Now')
-            .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
-            .setOnClickAction(
-              CardService.newAction()
-                .setFunctionName('onSendReminder')
-                .setParameters({ invoiceId: String(invoiceId) })
-            )
-        )
-        .addButton(
-          CardService.newTextButton()
-            .setText('Compose in Gmail')
-            .setTextButtonStyle(CardService.TextButtonStyle.OUTLINED)
-            .setComposeAction(
-              CardService.newAction()
-                .setFunctionName('onOpenPaidCompose')
-                .setParameters({ invoiceId: String(invoiceId) }),
-              CardService.ComposedEmailType.STANDALONE_DRAFT
-            )
-        )
-    )
+  var btnRow = CardService.newButtonSet().addButton(
+    CardService.newTextButton()
+      .setText('Send Now')
+      .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+      .setOnClickAction(
+        CardService.newAction()
+          .setFunctionName('onSendReminder')
+          .setParameters({ invoiceId: String(invoiceId) })
+      )
   );
+  try {
+    btnRow.addButton(
+      CardService.newTextButton()
+        .setText('Edit in Gmail')
+        .setTextButtonStyle(CardService.TextButtonStyle.OUTLINED)
+        .setComposeAction(
+          CardService.newAction()
+            .setFunctionName('onOpenPaidCompose')
+            .setParameters({ invoiceId: String(invoiceId) }),
+          CardService.ComposedEmailType.STANDALONE_DRAFT
+        )
+    );
+  } catch (composeErr) {
+    btnRow.addButton(
+      CardService.newTextButton()
+        .setText('Edit in Gmail')
+        .setTextButtonStyle(CardService.TextButtonStyle.OUTLINED)
+        .setOnClickAction(CardService.newAction().setFunctionName('onEditInGmailUnavailable'))
+    );
+  }
+
+  card.addSection(CardService.newCardSection().addWidget(btnRow));
 
   return card.build();
 }
@@ -304,13 +363,17 @@ function formatHeaderLine_(header) {
   var total = fmtMoney_(header.totalOutstanding);
   var clients = header.overdueClientCount || 0;
   var avg = header.avgDaysOverdue || 0;
+  var sep = ' \u00b7 ';
   return (
     total +
-    ' outstanding · ' +
+    ' outstanding' +
+    sep +
     clients +
     ' client' +
     (clients === 1 ? '' : 's') +
-    ' overdue · avg ' +
+    ' overdue' +
+    sep +
+    'avg ' +
     avg +
     ' days'
   );
@@ -327,13 +390,6 @@ function formatDueDate_(iso) {
   }
 }
 
-function firstLineService_(lineItems) {
-  if (!lineItems || typeof lineItems !== 'string') return '';
-  var line = lineItems.split('\n')[0].trim();
-  if (line.length > 140) line = line.substring(0, 137) + '…';
-  return line;
-}
-
 function severityDotUrl_(days) {
   var d = Number(days) || 0;
   if (d >= 90) return DOT_90;
@@ -344,42 +400,46 @@ function severityDotUrl_(days) {
 
 function buildCohortRow_(dotUrl, label, cohort) {
   var c = cohort || { total: 0, count: 0 };
+  var cnt = n_(c.count);
+  var invWord = cnt === 1 ? 'invoice' : 'invoices';
   return CardService.newDecoratedText()
     .setStartIcon(CardService.newIconImage().setIconUrl(dotUrl))
     .setText(label)
-    .setBottomLabel(fmtMoney_(c.total) + ' · ' + n_(c.count));
+    .setBottomLabel(fmtMoneyCompact_(c.total) + ' \u00b7 ' + cnt + ' ' + invWord);
 }
 
 function appendInvoiceBlock_(section, row, withDivider) {
   if (withDivider) {
     section.addWidget(CardService.newDivider());
   }
-  section.addWidget(
-    CardService.newKeyValue()
-      .setTopLabel(row.client_name || 'Client')
-      .setContent(fmtMoney_(row.amount))
-  );
   var dotUrl = severityDotUrl_(row.days_overdue);
+  var d = Number(row.days_overdue) || 0;
+  var daysText;
+  if (d >= 90) {
+    daysText = d + ' days overdue - urgent';
+  } else if (d >= 60) {
+    daysText = d + ' days overdue';
+  } else if (d >= 30) {
+    daysText = d + ' days overdue';
+  } else {
+    daysText = d + ' days';
+  }
+  var dueLine = formatDueDate_(row.due_date);
+  var bottomLine = daysText;
+  if (dueLine) {
+    bottomLine = bottomLine + ' \u00b7 ' + dueLine;
+  }
   section.addWidget(
     CardService.newDecoratedText()
       .setStartIcon(CardService.newIconImage().setIconUrl(dotUrl))
-      .setText(String(row.days_overdue || 0) + ' days')
+      .setTopLabel(row.client_name || 'Client')
+      .setText(fmtMoney_(row.amount))
+      .setBottomLabel(bottomLine)
   );
-  var dueLine = formatDueDate_(row.due_date);
-  if (dueLine) {
-    section.addWidget(CardService.newTextParagraph().setText(dueLine));
-  }
-  section.addWidget(
-    CardService.newTextParagraph().setText('Invoice #' + row.quickbooks_invoice_id)
-  );
-  var svc = firstLineService_(row.line_items);
-  if (svc) {
-    section.addWidget(CardService.newTextParagraph().setText('— ' + svc));
-  }
   section.addWidget(
     CardService.newButtonSet().addButton(
       CardService.newTextButton()
-        .setText('Draft Reminder')
+        .setText('Draft reminder')
         .setTextButtonStyle(CardService.TextButtonStyle.OUTLINED)
         .setOnClickAction(
           CardService.newAction()
@@ -440,16 +500,10 @@ function buildHomePage_(e) {
   try {
     var pack = fetchGmailSidebarPack_();
     if (!pack.ok) {
-      return card
-        .setHeader(CardService.newCardHeader().setTitle('Paid'))
-        .addSection(
-          CardService.newCardSection().addWidget(
-            CardService.newTextParagraph().setText(
-              'Could not load data. HTTP ' + pack.statusCode + ' ' + pack.body
-            )
-          )
-        )
-        .build();
+      return buildNotifyCard_(
+        userFacingApiError_(pack.statusCode, pack.body),
+        'onRefreshHome'
+      );
     }
 
     var data = pack.data;
@@ -464,9 +518,10 @@ function buildHomePage_(e) {
     );
 
     var cohortSec = CardService.newCardSection();
+    cohortSec.setHeader('Outstanding by age');
     cohortSec.addWidget(buildCohortRow_(DOT_90, '90+ days', cohorts.d90));
-    cohortSec.addWidget(buildCohortRow_(DOT_60, '60–90 days', cohorts.d60));
-    cohortSec.addWidget(buildCohortRow_(DOT_30, '30–60 days', cohorts.d30));
+    cohortSec.addWidget(buildCohortRow_(DOT_60, '60-90 days', cohorts.d60));
+    cohortSec.addWidget(buildCohortRow_(DOT_30, '30-60 days', cohorts.d30));
     cohortSec.addWidget(buildCohortRow_(DOT_OK, 'Current', cohorts.current));
     card.addSection(cohortSec);
 
@@ -475,11 +530,12 @@ function buildHomePage_(e) {
     });
 
     var listSec = CardService.newCardSection();
+    listSec.setHeader('Overdue invoices');
     if (!overdue.length) {
       listSec.addWidget(
         CardService.newDecoratedText()
           .setText('No invoices overdue 30+ days')
-          .setBottomLabel('Open balances by age are in the summary above')
+          .setBottomLabel('All invoices are current.')
       );
     } else {
       overdue.slice(0, 25).forEach(function (row, idx) {
@@ -488,7 +544,9 @@ function buildHomePage_(e) {
       if (overdue.length > 25) {
         listSec.addWidget(
           CardService.newTextParagraph().setText(
-            '— ' + (overdue.length - 25) + ' more in the web app'
+            'Plus ' +
+              (overdue.length - 25) +
+              ' more. Open paid-app.com to see all.'
           )
         );
       }
@@ -500,8 +558,8 @@ function buildHomePage_(e) {
       CardService.newButtonSet()
         .addButton(
           CardService.newTextButton()
-            .setText('Queue drafts (30d+)')
-            .setTextButtonStyle(CardService.TextButtonStyle.OUTLINED)
+            .setText('Send all reminders')
+            .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
             .setOnClickAction(CardService.newAction().setFunctionName('onQueueAllReminders'))
         )
         .addButton(
@@ -521,14 +579,10 @@ function buildHomePage_(e) {
 
     return card.build();
   } catch (err) {
-    return card
-      .setHeader(CardService.newCardHeader().setTitle('Paid'))
-      .addSection(
-        CardService.newCardSection().addWidget(
-          CardService.newTextParagraph().setText('Error: ' + String(err))
-        )
-      )
-      .build();
+    return buildNotifyCard_(
+      'Could not load Paid. Try again in a moment.',
+      'onRefreshHome'
+    );
   }
 }
 
@@ -557,7 +611,7 @@ function buildSettingsCard_(e) {
     .addSection(buildSettingsSection_())
     .addCardAction(
       CardService.newCardAction()
-        .setText('Done')
+        .setText('Back to invoices')
         .setOnClickAction(CardService.newAction().setFunctionName('onBackHome'))
     )
     .build();
@@ -567,14 +621,15 @@ function buildSettingsSection_() {
   return CardService.newCardSection()
     .addWidget(
       CardService.newTextParagraph().setText(
-        'Get your API key at paid-app.com/api/auth/api-key (open in your browser while signed in, copy the key, paste here).'
+        'Sign in at paid-app.com, then go to paid-app.com/api/auth/api-key to get your key.'
       )
     )
+    .addWidget(CardService.newDivider())
     .addWidget(
       CardService.newTextInput()
         .setFieldName('api_base')
         .setTitle('API base URL')
-        .setHint('https://getpaid.ai')
+        .setHint('https://paid-app.com')
     )
     .addWidget(
       CardService.newTextInput().setFieldName('api_key').setTitle('API key')
@@ -599,11 +654,14 @@ function buildContextualForMessage_(e) {
   var access = e.gmail && e.gmail.accessToken;
   var messageId = e.gmail && e.gmail.messageId;
   if (!access || !messageId) {
-    return buildNotifyCard_('Open a message to see Paid matches.');
+    return buildNotifyCard_(
+      'Open a message to see Paid matches.',
+      'onRefreshContextualMessage'
+    );
   }
 
   var emails = extractEmailsFromMessage_(messageId, access);
-  return buildCardsForEmails_(emails);
+  return buildCardsForEmails_(emails, 'onRefreshContextualMessage');
 }
 
 function buildContextualForCompose_(e) {
@@ -627,14 +685,36 @@ function buildContextualForCompose_(e) {
   }
 
   emails = uniqueLower_(emails);
-  if (!emails.length) return buildNotifyCard_('Add a recipient to see Paid matches.');
+  if (!emails.length) {
+    return buildNotifyCard_(
+      'Open a conversation with your client to see their invoices.',
+      'onRefreshContextualCompose'
+    );
+  }
 
-  return buildCardsForEmails_(emails);
+  return buildCardsForEmails_(emails, 'onRefreshContextualCompose');
 }
 
-function buildCardsForEmails_(emails) {
+function onRefreshContextualMessage(e) {
+  return CardService.newActionResponseBuilder()
+    .setNavigation(
+      CardService.newNavigation().updateCard(buildContextualForMessage_(e))
+    )
+    .build();
+}
+
+function onRefreshContextualCompose(e) {
+  return CardService.newActionResponseBuilder()
+    .setNavigation(
+      CardService.newNavigation().updateCard(buildContextualForCompose_(e))
+    )
+    .build();
+}
+
+function buildCardsForEmails_(emails, contextualRefreshFn) {
+  try {
   var builder = CardService.newCardBuilder().setHeader(
-    CardService.newCardHeader().setTitle('Paid').setSubtitle('This conversation')
+    CardService.newCardHeader().setTitle('Paid').setSubtitle('Invoices for this contact')
   );
 
   for (var i = 0; i < emails.length; i++) {
@@ -649,7 +729,9 @@ function buildCardsForEmails_(emails) {
           CardService.newCardSection().addWidget(
             CardService.newDecoratedText()
               .setText(email)
-              .setBottomLabel('Could not load (' + res.statusCode + ')')
+              .setBottomLabel(
+                'Could not connect to Paid. Check your API key and try again.'
+              )
           )
         );
         continue;
@@ -682,26 +764,55 @@ function buildCardsForEmails_(emails) {
         continue;
       }
 
+      var totalOverdueAmt = sumAmount_(overdue);
+      var clientLabel =
+        (overdue[0] &&
+          overdue[0].client_name &&
+          String(overdue[0].client_name).trim()) ||
+        email;
       var sec = CardService.newCardSection();
       sec.addWidget(
         CardService.newDecoratedText()
-          .setText(email)
-          .setBottomLabel(overdue.length + ' overdue · ' + fmtMoney_(sumAmount_(overdue)))
+          .setTopLabel(email)
+          .setText(fmtMoney_(totalOverdueAmt))
+          .setBottomLabel(
+            clientLabel + ' \u00b7 ' + overdue.length + ' invoices'
+          )
       );
       overdue.forEach(function (row, idx) {
         appendInvoiceBlock_(sec, row, idx > 0);
       });
       builder.addSection(sec);
     } catch (err) {
-      builder.addSection(
-        CardService.newCardSection().addWidget(
-          CardService.newTextParagraph().setText('Error for ' + email + ': ' + String(err))
+      var errSec = CardService.newCardSection();
+      errSec.addWidget(
+        CardService.newTextParagraph().setText(
+          'Could not load data for ' + email + '. Try again.'
         )
       );
+      errSec.addWidget(
+        CardService.newButtonSet().addButton(
+          CardService.newTextButton()
+            .setText('Refresh')
+            .setTextButtonStyle(CardService.TextButtonStyle.TEXT)
+            .setOnClickAction(
+              CardService.newAction().setFunctionName(
+                contextualRefreshFn || 'onRefreshContextualMessage'
+              )
+            )
+        )
+      );
+      builder.addSection(errSec);
     }
   }
 
   return builder.build();
+  } catch (outerErr) {
+    return buildNotifyCard_(
+      'Could not load invoice data for this view. Try again.',
+      contextualRefreshFn || 'onRefreshContextualMessage'
+    );
+  }
 }
 
 function sumAmount_(rows) {
@@ -714,7 +825,9 @@ function sumAmount_(rows) {
 
 function buildReviewQueueCard_(queue) {
   var card = CardService.newCardBuilder().setHeader(
-    CardService.newCardHeader().setTitle('Queued drafts').setSubtitle('30+ days · preview to send')
+    CardService.newCardHeader()
+      .setTitle('Queued drafts')
+      .setSubtitle('Review and approve each reminder before sending')
   );
   if (!queue.length) {
     card.addSection(
@@ -734,11 +847,13 @@ function buildReviewQueueCard_(queue) {
     sec.addWidget(
       CardService.newDecoratedText()
         .setText(item.clientName || 'Client')
-        .setBottomLabel(item.daysOverdue + ' days · ' + fmtMoney_(item.amount))
+        .setBottomLabel(
+          item.daysOverdue + ' days \u00b7 ' + fmtMoney_(item.amount)
+        )
     );
     sec.addWidget(
       CardService.newTextParagraph().setText(
-        item.body.length > 320 ? item.body.substring(0, 320) + '…' : item.body
+        item.body.length > 500 ? item.body.substring(0, 500) + '...' : item.body
       )
     );
     sec.addWidget(
@@ -759,16 +874,42 @@ function buildReviewQueueCard_(queue) {
   return card.build();
 }
 
-function buildNotifyCard_(text) {
-  return CardService.newCardBuilder()
-    .setHeader(CardService.newCardHeader().setTitle('Paid'))
-    .addSection(
-      CardService.newCardSection().addWidget(CardService.newTextParagraph().setText(text))
+function buildNotifyCard_(text, refreshFunctionName) {
+  var card = CardService.newCardBuilder()
+    .setHeader(
+      CardService.newCardHeader()
+        .setTitle('Paid')
+        .setSubtitle('Tap Refresh to try again')
     )
-    .build();
+    .addSection(
+      CardService.newCardSection().addWidget(
+        CardService.newTextParagraph().setText(text)
+      )
+    );
+  var refreshFn = refreshFunctionName || 'onRefreshHome';
+  card.addCardAction(
+    CardService.newCardAction()
+      .setText('Refresh')
+      .setOnClickAction(CardService.newAction().setFunctionName(refreshFn))
+  );
+  return card.build();
 }
 
 // --- HTTP + helpers ---
+
+/**
+ * User-visible API failure copy (do not show raw HTTP status lines or response bodies).
+ */
+function userFacingApiError_(statusCode, body) {
+  var c = Number(statusCode) || 0;
+  if (c === 401 || c === 403) {
+    return 'Could not connect to Paid. Check your API key and try again.';
+  }
+  if (c === 404) {
+    return 'Could not connect to Paid. Check your API base URL and try again.';
+  }
+  return 'Could not connect to Paid. Check your API key and try again.';
+}
 
 function paidFetch_(path, opts) {
   var base = getApiBase_();
@@ -776,11 +917,13 @@ function paidFetch_(path, opts) {
   if (!base || !apiKey) throw new Error('Configure PAID_API_BASE and PAID_API_KEY');
 
   var url = base + path;
+  /** UrlFetchApp timeout is total request duration (ms); no separate connectTimeout in Apps Script. */
   var params = {
     method: opts.method || 'get',
     contentType: 'application/json',
     headers: { Authorization: 'Bearer ' + apiKey },
     muteHttpExceptions: true,
+    timeout: 10000,
   };
   if (opts.payload) params.payload = opts.payload;
   var resp = UrlFetchApp.fetch(url, params);
@@ -805,9 +948,28 @@ function trimSlash_(s) {
   return s.replace(/\/+$/, '');
 }
 
-function fmtMoney_(n) {
+/** Whole dollars with commas (cohort row labels on mobile). */
+function fmtMoneyCompact_(n) {
   if (n === undefined || n === null) return '$0';
-  return '$' + Number(n).toFixed(2);
+  var num = Number(n);
+  if (isNaN(num)) return '$0';
+  var rounded = Math.round(num);
+  var s = String(Math.abs(rounded));
+  s = s.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  if (rounded < 0) {
+    return '-$' + s;
+  }
+  return '$' + s;
+}
+
+function fmtMoney_(n) {
+  if (n === undefined || n === null) return '$0.00';
+  var num = Number(n);
+  if (isNaN(num)) return '$0.00';
+  var fixed = num.toFixed(2);
+  var parts = fixed.split('.');
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return '$' + parts[0] + '.' + parts[1];
 }
 
 function n_(x) {
@@ -835,6 +997,7 @@ function extractEmailsFromMessage_(messageId, accessToken) {
   var resp = UrlFetchApp.fetch(url, {
     headers: { Authorization: 'Bearer ' + accessToken },
     muteHttpExceptions: true,
+    timeout: 10000,
   });
   if (resp.getResponseCode() !== 200) return [];
   var json = JSON.parse(resp.getContentText());

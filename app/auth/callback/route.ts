@@ -20,8 +20,9 @@ export async function GET(request: NextRequest) {
           .maybeSingle();
 
         const done = profile?.onboarding_completed === true;
-        const path = done ? "/dashboard" : "/onboarding";
-        return NextResponse.redirect(new URL(path, request.url));
+        return NextResponse.redirect(
+          new URL(done ? "/dashboard" : "/onboarding", request.url)
+        );
       }
     }
   }

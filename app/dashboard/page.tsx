@@ -14,11 +14,18 @@ export default async function DashboardPage() {
 
   const { data: profile } = await supabase
     .from("users")
-    .select("onboarding_completed")
+    .select("onboarding_completed, quickbooks_token, gmail_token")
     .eq("id", user.id)
     .maybeSingle();
 
-  if (profile && profile.onboarding_completed === false) {
+  if (!profile || profile.onboarding_completed === false) {
+    redirect("/onboarding");
+  }
+
+  if (
+    profile.onboarding_completed === true &&
+    (profile.quickbooks_token == null || profile.gmail_token == null)
+  ) {
     redirect("/onboarding");
   }
 

@@ -25,8 +25,9 @@ export default async function OnboardingPage({
     redirect("/dashboard");
   }
 
-  const quickbooksConnected = profile?.quickbooks_token != null;
-  const gmailConnected = profile?.gmail_token != null;
+  /** Source of truth: DB tokens (not URL params). */
+  const quickbooksConnected = profile != null && profile.quickbooks_token != null;
+  const gmailConnected = profile != null && profile.gmail_token != null;
 
   const params = await searchParams;
 

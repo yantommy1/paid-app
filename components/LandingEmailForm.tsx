@@ -77,6 +77,11 @@ export function LandingEmailForm({
     "idle"
   );
   const [message, setMessage] = useState("");
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotFeedback, setForgotFeedback] = useState<{
+    kind: "success" | "error";
+    text: string;
+  } | null>(null);
   const emailFieldId = useId();
   const passwordFieldId = useId();
 
@@ -159,6 +164,44 @@ export function LandingEmailForm({
     );
   }
 
+  async function onForgotPassword() {
+    setForgotFeedback(null);
+    if (!email.trim()) {
+      setForgotFeedback({
+        kind: "error",
+        text: "Enter your email address above first.",
+      });
+      return;
+    }
+    setForgotLoading(true);
+    const supabase = createClient();
+    const origin =
+      typeof window !== "undefined" ? window.location.origin : "";
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(
+        email.trim(),
+        {
+          redirectTo: `${origin}/auth/reset-password`,
+        }
+      );
+      if (error) {
+        setForgotFeedback({ kind: "error", text: mapAuthError(error) });
+        return;
+      }
+      setForgotFeedback({
+        kind: "success",
+        text: "Check your inbox \u2014 we sent a password reset link.",
+      });
+    } catch {
+      setForgotFeedback({
+        kind: "error",
+        text: "Something went wrong. Please try again.",
+      });
+    } finally {
+      setForgotLoading(false);
+    }
+  }
+
   const isDark = variant === "dark";
   const labelClass = isDark
     ? "mb-1.5 block text-sm font-medium text-paid-mist/70"
@@ -174,6 +217,18 @@ export function LandingEmailForm({
       ? "text-sm text-red-400"
       : "text-sm text-[#00E5A0]/90"
     : `text-sm ${status === "error" ? "text-red-600" : "text-slate-600"}`;
+
+  const forgotLinkClass = isDark
+    ? "text-sm text-paid-mist/50 underline hover:text-paid-mist cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+    : "text-sm text-slate-500 underline hover:text-slate-900 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50";
+  const forgotMsgClass = (kind: "success" | "error") =>
+    isDark
+      ? kind === "error"
+        ? "text-xs text-red-400"
+        : "text-xs text-[#00E5A0]/90"
+      : kind === "error"
+        ? "text-xs text-red-600"
+        : "text-xs text-slate-600";
 
   const submitLabel =
     status === "loading"
@@ -209,6 +264,7 @@ export function LandingEmailForm({
             setAuthMode("signinLink");
             setMessage("");
             setStatus("idle");
+            setForgotFeedback(null);
           }}
         >
           Sign-in link
@@ -220,6 +276,7 @@ export function LandingEmailForm({
             setAuthMode("password");
             setMessage("");
             setStatus("idle");
+            setForgotFeedback(null);
           }}
         >
           Password
@@ -243,7 +300,10 @@ export function LandingEmailForm({
           type="email"
           required
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          onChange={(e) => {
+            setEmail(e.target.value);
+            setForgotFeedback(null);
+          }}
           className={inputClass}
           placeholder="you@firm.com"
           autoComplete="email"
@@ -273,6 +333,26 @@ export function LandingEmailForm({
               intent === "signup" ? "new-password" : "current-password"
             }
           />
+          {intent === "signin" && (
+            <div className="mt-1.5 flex flex-col items-end gap-1">
+              <button
+                type="button"
+                className={forgotLinkClass}
+                disabled={forgotLoading}
+                onClick={() => void onForgotPassword()}
+              >
+                {forgotLoading ? "Sending…" : "Forgot password?"}
+              </button>
+              {forgotFeedback && (
+                <p
+                  className={`max-w-full text-right ${forgotMsgClass(forgotFeedback.kind)}`}
+                  role={forgotFeedback.kind === "error" ? "alert" : "status"}
+                >
+                  {forgotFeedback.text}
+                </p>
+              )}
+            </div>
+          )}
         </div>
       )}
 
