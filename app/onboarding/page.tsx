@@ -17,13 +17,16 @@ export default async function OnboardingPage({
 
   const { data: profile } = await supabase
     .from("users")
-    .select("onboarding_completed")
+    .select("onboarding_completed, quickbooks_token, gmail_token")
     .eq("id", user.id)
     .maybeSingle();
 
   if (profile?.onboarding_completed === true) {
     redirect("/dashboard");
   }
+
+  const quickbooksConnected = profile?.quickbooks_token != null;
+  const gmailConnected = profile?.gmail_token != null;
 
   const params = await searchParams;
 
@@ -36,7 +39,12 @@ export default async function OnboardingPage({
             Setup
           </p>
         </div>
-        <OnboardingClient initialStep={params.step} email={user.email ?? ""} />
+        <OnboardingClient
+          initialStep={params.step}
+          email={user.email ?? ""}
+          quickbooksConnected={quickbooksConnected}
+          gmailConnected={gmailConnected}
+        />
       </div>
     </main>
   );

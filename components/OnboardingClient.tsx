@@ -8,12 +8,46 @@ import { createClient } from "@/lib/supabase/browser";
 const MARKETPLACE_URL =
   "https://workspace.google.com/marketplace/app/your_paid_add_on_id";
 
+function ConnectedPill() {
+  return (
+    <div
+      className="mt-5 inline-flex cursor-default items-center gap-2 rounded-lg border border-[#00E5A0]/35 bg-[#00E5A0]/10 px-4 py-2.5 text-sm font-semibold text-[#00E5A0]"
+      role="status"
+      aria-label="Connected"
+    >
+      <svg
+        className="h-4 w-4 shrink-0"
+        viewBox="0 0 16 16"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        aria-hidden
+      >
+        <path
+          d="M13.5 4.5L6.5 11.5L2.5 7.5"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+      Connected
+    </div>
+  );
+}
+
 type Props = {
   initialStep?: string;
   email: string;
+  quickbooksConnected: boolean;
+  gmailConnected: boolean;
 };
 
-export function OnboardingClient({ initialStep, email }: Props) {
+export function OnboardingClient({
+  initialStep,
+  email,
+  quickbooksConnected,
+  gmailConnected,
+}: Props) {
   const router = useRouter();
   const [completing, setCompleting] = useState(false);
   const [completeError, setCompleteError] = useState<string | null>(null);
@@ -84,12 +118,16 @@ export function OnboardingClient({ initialStep, email }: Props) {
             Authorize read access to unpaid invoices. We sync your open balances
             securely.
           </p>
-          <a
-            href="/api/auth/quickbooks"
-            className="mt-5 inline-block rounded-lg bg-[#00E5A0] px-4 py-2.5 text-sm font-semibold text-paid-ink transition hover:brightness-110"
-          >
-            Connect QuickBooks
-          </a>
+          {quickbooksConnected ? (
+            <ConnectedPill />
+          ) : (
+            <a
+              href="/api/auth/quickbooks"
+              className="mt-5 inline-block rounded-lg bg-[#00E5A0] px-4 py-2.5 text-sm font-semibold text-paid-ink transition hover:brightness-110"
+            >
+              Connect QuickBooks
+            </a>
+          )}
         </li>
 
         <li className={card(step >= 2)}>
@@ -102,12 +140,16 @@ export function OnboardingClient({ initialStep, email }: Props) {
           <p className="mt-2 text-sm leading-relaxed text-paid-mist/65">
             Allow Paid to send reminders from your work Gmail address.
           </p>
-          <a
-            href="/api/auth/gmail"
-            className="mt-5 inline-block rounded-lg bg-[#00E5A0] px-4 py-2.5 text-sm font-semibold text-paid-ink transition hover:brightness-110"
-          >
-            Connect Gmail
-          </a>
+          {gmailConnected ? (
+            <ConnectedPill />
+          ) : (
+            <a
+              href="/api/auth/gmail"
+              className="mt-5 inline-block rounded-lg bg-[#00E5A0] px-4 py-2.5 text-sm font-semibold text-paid-ink transition hover:brightness-110"
+            >
+              Connect Gmail
+            </a>
+          )}
         </li>
 
         <li className={card(step >= 3)}>

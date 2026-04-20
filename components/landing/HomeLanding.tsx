@@ -12,20 +12,25 @@ export function HomeLanding() {
   const [modalIntent, setModalIntent] = useState<AuthIntent>("signup");
   const [inlineIntent, setInlineIntent] = useState<AuthIntent>("signup");
 
-  const scrollToEmail = useCallback((intent: AuthIntent) => {
-    setInlineIntent(intent);
-    requestAnimationFrame(() => {
-      emailSignupRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-    });
-  }, []);
-
   const openModal = useCallback((intent: AuthIntent) => {
     setModalIntent(intent);
     setModalOpen(true);
   }, []);
+
+  /** Reliable auth entry: open dialog + scroll the inline form into view (fallback if modal closed). */
+  const goToAuth = useCallback(
+    (intent: AuthIntent) => {
+      setInlineIntent(intent);
+      openModal(intent);
+      window.setTimeout(() => {
+        const el =
+          emailSignupRef.current ??
+          document.getElementById("email-signup");
+        el?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 0);
+    },
+    [openModal]
+  );
 
   return (
     <div className="min-h-screen bg-paid-ink text-paid-mist">
@@ -57,11 +62,15 @@ export function HomeLanding() {
             </h2>
             <p className="mt-2 text-sm leading-relaxed text-paid-mist/60">
               {modalIntent === "signup"
-                ? "We’ll email you a secure link to create your account — no password to remember."
-                : "We’ll email you a link to sign in to your existing account."}
+                ? "Use a magic link or password — your choice in the form below."
+                : "Magic link or password — pick what works best for you."}
             </p>
             <div className="mt-6">
-              <LandingEmailForm variant="dark" intent={modalIntent} />
+              <LandingEmailForm
+                key={`modal-${modalOpen}-${modalIntent}`}
+                variant="dark"
+                intent={modalIntent}
+              />
             </div>
           </div>
         </div>
@@ -75,14 +84,14 @@ export function HomeLanding() {
           <div className="flex items-center gap-4 sm:gap-6">
             <button
               type="button"
-              onClick={() => openModal("signup")}
+              onClick={() => goToAuth("signup")}
               className="text-sm font-medium text-paid-mist/80 transition hover:text-[#00E5A0]"
             >
               Get started
             </button>
             <button
               type="button"
-              onClick={() => openModal("signin")}
+              onClick={() => goToAuth("signin")}
               className="text-sm font-medium text-paid-mist/80 transition hover:text-[#00E5A0]"
             >
               Sign in
@@ -108,7 +117,7 @@ export function HomeLanding() {
                 <div className="mt-10 flex flex-wrap items-center gap-4">
                   <button
                     type="button"
-                    onClick={() => scrollToEmail("signup")}
+                    onClick={() => goToAuth("signup")}
                     className="inline-flex items-center justify-center rounded-md bg-[#00E5A0] px-6 py-3 text-sm font-semibold text-paid-ink transition hover:brightness-110"
                   >
                     Get started free
@@ -287,7 +296,7 @@ export function HomeLanding() {
                   </ul>
                   <button
                     type="button"
-                    onClick={() => scrollToEmail("signup")}
+                    onClick={() => goToAuth("signup")}
                     className="mt-10 inline-flex w-full items-center justify-center rounded-md border border-white/20 py-3 text-sm font-semibold text-paid-mist transition hover:border-[#00E5A0]/45 hover:bg-[#00E5A0]/10 hover:text-[#00E5A0]"
                   >
                     Get started
@@ -307,7 +316,7 @@ export function HomeLanding() {
                   </ul>
                   <button
                     type="button"
-                    onClick={() => scrollToEmail("signup")}
+                    onClick={() => goToAuth("signup")}
                     className="mt-10 inline-flex w-full items-center justify-center rounded-md bg-[#00E5A0] py-3 text-sm font-semibold text-paid-ink transition hover:brightness-110"
                   >
                     Get started
@@ -351,7 +360,11 @@ export function HomeLanding() {
                     : "Enter the email you used before — we’ll send a link to open Paid."}
                 </p>
                 <div className="mt-8">
-                  <LandingEmailForm variant="dark" intent={inlineIntent} />
+                  <LandingEmailForm
+                    key={`inline-${inlineIntent}`}
+                    variant="dark"
+                    intent={inlineIntent}
+                  />
                 </div>
               </div>
             </SectionReveal>
