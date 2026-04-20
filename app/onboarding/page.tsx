@@ -2,6 +2,14 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { OnboardingClient } from "@/components/OnboardingClient";
 
+/**
+ * OAuth tokens live on public.users as jsonb columns (see supabase/migrations):
+ * - quickbooks_token — 20260418000000_initial.sql (+ 20260424120000_users_integration_tokens_confirm.sql)
+ * - gmail_token — same
+ */
+const USERS_INTEGRATION_FIELDS =
+  "onboarding_completed, quickbooks_token, gmail_token" as const;
+
 export default async function OnboardingPage({
   searchParams,
 }: {
@@ -17,7 +25,7 @@ export default async function OnboardingPage({
 
   const { data: profile } = await supabase
     .from("users")
-    .select("onboarding_completed, quickbooks_token, gmail_token")
+    .select(USERS_INTEGRATION_FIELDS)
     .eq("id", user.id)
     .maybeSingle();
 
@@ -25,8 +33,9 @@ export default async function OnboardingPage({
     redirect("/dashboard");
   }
 
-  /** Source of truth: DB tokens (not URL params). */
-  const quickbooksConnected = profile != null && profile.quickbooks_token != null;
+  /** Connected when the corresponding jsonb column is non-null in the database. */
+  const quickbooksConnected =
+    profile != null && profile.quickbooks_token != null;
   const gmailConnected = profile != null && profile.gmail_token != null;
 
   const params = await searchParams;
