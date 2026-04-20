@@ -116,13 +116,18 @@ export default function TermsPage() {
       </div>
 
       <div className={section}>
-        <h2 className={h2}>Fees and payment</h2>
+        <h2 className={h2}>Fees, payment, and cancellation</h2>
         <p className={p}>
           If you subscribe to a paid plan, fees, billing cycles, and taxes are
           as described at checkout or in an order form. Unless otherwise stated,
           fees are non-refundable except as required by law or expressly stated
           in writing. We may change pricing with advance notice before a renewal
           term.
+        </p>
+        <p className={p}>
+          You may cancel your subscription at any time from your account or by
+          contacting us. Cancellation stops future charges as of the end of your
+          current billing period unless otherwise stated at checkout.
         </p>
       </div>
 
@@ -218,8 +223,14 @@ export default function TermsPage() {
       <div className={section}>
         <h2 className={h2}>Contact</h2>
         <p className={p}>
-          For questions about these Terms, contact us at the address or channel
-          listed on paid-app.com.
+          For questions about these Terms, contact us at{" "}
+          <a
+            href="mailto:legal@paid-app.com"
+            className="text-[#00E5A0] underline decoration-[#00E5A0]/40 underline-offset-2 hover:decoration-[#00E5A0]"
+          >
+            legal@paid-app.com
+          </a>
+          .
         </p>
       </div>
     </LegalPageShell>

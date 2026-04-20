@@ -8,12 +8,14 @@ import { useId, useState } from "react";
 type Variant = "light" | "dark";
 export type AuthIntent = "signup" | "signin";
 
-type AuthMode = "magic" | "password";
+type AuthMode = "signinLink" | "password";
 
 type Props = {
   variant?: Variant;
   intent?: AuthIntent;
 };
+
+const ELL = "\u2026";
 
 function mapAuthError(err: AuthError | null): string {
   if (!err?.message?.trim()) {
@@ -21,7 +23,6 @@ function mapAuthError(err: AuthError | null): string {
   }
   const m = err.message.trim();
   const lower = m.toLowerCase();
-  // Never surface unrelated UI copy, API paths, or onboarding strings as auth errors.
   if (
     (lower.includes("install") && lower.includes("gmail")) ||
     lower.includes("gmail add-on") ||
@@ -34,13 +35,13 @@ function mapAuthError(err: AuthError | null): string {
     return "Invalid email or password.";
   }
   if (lower.includes("email not confirmed")) {
-    return "Confirm your email first, or use a magic link to sign in.";
+    return "Confirm your email first, or use a sign-in link to sign in.";
   }
   if (lower.includes("user already registered")) {
     return "This email already has an account. Sign in instead.";
   }
   if (lower.includes("signups not allowed") || lower.includes("user not found")) {
-    return "No account found for this email. Use the New to Paid tab, or try a magic link.";
+    return "No account found for this email. Use the New to Paid tab, or try a sign-in link.";
   }
   if (m.length > 240) {
     return "Could not complete the request. Please try again.";
@@ -71,7 +72,7 @@ export function LandingEmailForm({
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [authMode, setAuthMode] = useState<AuthMode>("magic");
+  const [authMode, setAuthMode] = useState<AuthMode>("signinLink");
   const [status, setStatus] = useState<"idle" | "loading" | "sent" | "error">(
     "idle"
   );
@@ -90,7 +91,7 @@ export function LandingEmailForm({
     if (authMode === "password") {
       if (!password.trim()) {
         setStatus("error");
-        setMessage("Enter a password, or switch to Magic link.");
+        setMessage("Enter a password, or switch to Sign-in link.");
         return;
       }
       try {
@@ -138,7 +139,6 @@ export function LandingEmailForm({
       return;
     }
 
-    // Magic link
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
@@ -177,14 +177,12 @@ export function LandingEmailForm({
 
   const submitLabel =
     status === "loading"
-      ? "Working…"
+      ? `Working${ELL}`
       : authMode === "password"
         ? intent === "signup"
           ? "Create account"
           : "Sign in with password"
-        : intent === "signup"
-          ? "Continue with email link"
-          : "Email me a sign-in link";
+        : "Send me a link";
 
   const tabBtn = (active: boolean) =>
     isDark
@@ -206,14 +204,14 @@ export function LandingEmailForm({
       >
         <button
           type="button"
-          className={tabBtn(authMode === "magic")}
+          className={tabBtn(authMode === "signinLink")}
           onClick={() => {
-            setAuthMode("magic");
+            setAuthMode("signinLink");
             setMessage("");
             setStatus("idle");
           }}
         >
-          Magic link
+          Sign-in link
         </button>
         <button
           type="button"
@@ -229,8 +227,8 @@ export function LandingEmailForm({
       </div>
 
       <p className={`text-xs ${isDark ? "text-paid-mist/50" : "text-slate-500"}`}>
-        {authMode === "magic"
-          ? "We will email you a one-time link \u2014 no password needed."
+        {authMode === "signinLink"
+          ? "We will email you a one-time sign-in link \u2014 no password needed."
           : intent === "signup"
             ? "Choose a password for your account."
             : "Sign in with the password you created."}
@@ -250,6 +248,13 @@ export function LandingEmailForm({
           placeholder="you@firm.com"
           autoComplete="email"
         />
+        {authMode === "signinLink" && (
+          <p
+            className={`mt-2 text-xs leading-relaxed ${isDark ? "text-paid-mist/45" : "text-slate-500"}`}
+          >
+            Check your spam folder if it does not arrive within 2 minutes.
+          </p>
+        )}
       </div>
 
       {authMode === "password" && (
@@ -263,7 +268,7 @@ export function LandingEmailForm({
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             className={inputClass}
-            placeholder="••••••••"
+            placeholder="Password"
             autoComplete={
               intent === "signup" ? "new-password" : "current-password"
             }

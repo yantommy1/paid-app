@@ -36,7 +36,7 @@ export default function PrivacyPage() {
         <p className={p}>
           We collect information you provide when you register or communicate
           with us, such as your name, work email address, and authentication
-          details (for example, when you sign in with a magic link, password, or
+          details (for example, when you sign in with a sign-in link, password, or
           single sign-on, depending on what we support).
         </p>
         <h3 className={h3}>Integration and financial data</h3>
@@ -76,7 +76,9 @@ export default function PrivacyPage() {
           Paid requests Google OAuth permissions only for the scopes we need to
           provide the Service. Depending on configuration, this may include the
           ability to send email on your behalf and to read your email address for
-          identification. We use Gmail access to:
+          identification. We use Gmail access to send payment reminders only. We
+          do not read the content of your inbox or messages for marketing,
+          profiling, or unrelated purposes.
         </p>
         <ul className={ul}>
           <li>
@@ -93,8 +95,7 @@ export default function PrivacyPage() {
         <p className={p}>
           We do not use your Gmail messages to train third-party artificial
           intelligence models for unrelated purposes, and we do not sell the
-          content of your email. We do not read your entire mailbox for
-          marketing profiling. Access is limited to what is reasonably necessary
+          content of your email. Access is limited to what is reasonably necessary
           to provide invoice follow-up features you choose to use.
         </p>
         <p className={p}>
@@ -107,8 +108,10 @@ export default function PrivacyPage() {
       <div className={section}>
         <h2 className={h2}>How we use QuickBooks data</h2>
         <p className={p}>
-          We connect to Intuit QuickBooks to read unpaid or overdue invoice and
-          customer records you authorize. We use this data to:
+          We connect to Intuit QuickBooks to read unpaid invoice and related
+          customer records you authorize. We use this data only to operate
+          invoice follow-up features in Paid—not for unrelated advertising or
+          resale. We use this data to:
         </p>
         <ul className={ul}>
           <li>Show balances, aging, and invoice details in the Service.</li>
@@ -146,10 +149,11 @@ export default function PrivacyPage() {
         <h2 className={h2}>Data retention</h2>
         <p className={p}>
           We retain account and integration data for as long as your account is
-          active or as needed to provide the Service. If you disconnect an
-          integration, we may delete or de-identify associated tokens and cached
-          data within a reasonable period, subject to backup cycles and legal
-          holds.
+          active or as needed to provide the Service. When you cancel your
+          account, we delete your data on request where feasible, subject to
+          short backup cycles and legal holds. If you disconnect an integration, we
+          may delete or de-identify associated tokens and cached data within a
+          reasonable period.
         </p>
         <p className={p}>
           After you close your account, we retain information only as long as
@@ -187,7 +191,8 @@ export default function PrivacyPage() {
         <p className={p}>
           To exercise these rights, contact us using the details below. We will
           respond within the time required by applicable law. You can also
-          update some information directly in the Service.
+          update some information directly in the Service. You may delete your
+          account at any time; see Data retention for how we handle deletion.
         </p>
         <p className={p}>
           If you are a California resident, you may have additional rights under
@@ -236,8 +241,14 @@ export default function PrivacyPage() {
         <h2 className={h2}>Contact</h2>
         <p className={p}>
           For privacy questions or requests regarding this policy or your data,
-          contact us at the support address published on paid-app.com (or your
-          order form, if applicable).
+          contact us at{" "}
+          <a
+            href="mailto:privacy@paid-app.com"
+            className="text-[#00E5A0] underline decoration-[#00E5A0]/40 underline-offset-2 hover:decoration-[#00E5A0]"
+          >
+            privacy@paid-app.com
+          </a>
+          .
         </p>
       </div>
     </LegalPageShell>

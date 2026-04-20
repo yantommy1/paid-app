@@ -29,13 +29,20 @@ function badgeStyles(tier: "90+" | "60" | "30") {
 
 export function GmailSidebarMockup() {
   return (
-    <div className="relative mx-auto w-full max-w-[340px] select-none">
+    <div className="relative mx-auto w-full max-w-[340px] select-none pb-2">
       <div
         aria-hidden
         className="pointer-events-none absolute -right-6 -top-8 h-32 w-32 border border-white/[0.06]"
       />
-      <div className="overflow-hidden rounded-lg border border-white/[0.12] bg-[#0C0C10] shadow-[0_24px_80px_rgba(0,0,0,0.55)]">
-        <div className="flex items-center gap-2 border-b border-white/[0.08] bg-black/40 px-3 py-2.5">
+      <div className="relative overflow-hidden rounded-lg border border-white/[0.12] bg-[#0C0C10] shadow-[0_24px_80px_rgba(0,0,0,0.55)]">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -right-1 top-10 z-0 select-none font-display text-5xl font-semibold leading-none text-white/[0.06]"
+          style={{ transform: "rotate(12deg)" }}
+        >
+          Paid
+        </div>
+        <div className="relative z-[1] flex items-center gap-2 border-b border-white/[0.08] bg-black/40 px-3 py-2.5">
           <span className="font-display text-[15px] tracking-tight text-paid-mist">
             Paid
           </span>
@@ -43,13 +50,13 @@ export function GmailSidebarMockup() {
             Gmail · Add-on
           </span>
         </div>
-        <div className="border-b border-white/[0.06] px-3 py-2">
+        <div className="relative z-[1] border-b border-white/[0.06] px-3 py-2">
           <p className="font-mono text-[11px] tabular-nums text-white/45">
             Open AR · <span className="text-paid-mist/90">$46,150.00</span>
           </p>
         </div>
-        <div className="space-y-2 p-3">
-          {rows.map((row) => (
+        <div className="relative z-[1] space-y-2.5 p-3 pb-4">
+          {rows.map((row, index) => (
             <div
               key={row.client}
               className="rounded-md border border-white/[0.08] bg-white/[0.02] p-2.5 pl-2"
@@ -81,16 +88,26 @@ export function GmailSidebarMockup() {
                   {row.days}d
                 </span>
               </div>
-              <div className="flex items-center justify-between border-t border-white/[0.05] pt-2">
+              <div className="flex items-center justify-between gap-2 border-t border-white/[0.05] pt-2.5">
                 <span className="text-[10px] text-white/35">Reminder</span>
-                <span className="rounded border border-[#00E5A0]/25 bg-[#00E5A0]/[0.08] px-2 py-0.5 text-[10px] font-medium text-[#00E5A0]">
-                  Draft
-                </span>
+                {index === 0 ? (
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    className="shrink-0 rounded-md border border-[#00E5A0]/40 bg-[#00E5A0]/[0.12] px-2.5 py-1 text-[10px] font-semibold leading-none text-[#00E5A0]"
+                  >
+                    Draft reminder
+                  </button>
+                ) : (
+                  <span className="shrink-0 rounded border border-[#00E5A0]/25 bg-[#00E5A0]/[0.08] px-2 py-0.5 text-[10px] font-medium text-[#00E5A0]">
+                    Draft
+                  </span>
+                )}
               </div>
             </div>
           ))}
         </div>
-        <div className="border-t border-white/[0.06] px-3 py-2">
+        <div className="relative z-[1] border-t border-white/[0.06] px-3 py-2">
           <div className="h-1 w-full rounded-full bg-white/[0.06]">
             <div className="h-full w-[38%] rounded-full bg-[#00E5A0]/70" />
           </div>

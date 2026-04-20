@@ -1,8 +1,9 @@
 "use client";
 
+import { createClient } from "@/lib/supabase/browser";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { createClient } from "@/lib/supabase/browser";
 
 function ConnectedPill() {
   return (
@@ -91,18 +92,27 @@ export function OnboardingClient({
 
   return (
     <div className="space-y-10">
-      <div>
-        <p className="text-sm text-paid-mist/55">Signed in as {email}</p>
-        <div className="mt-2 flex flex-wrap gap-4">
-          <button
-            type="button"
-            onClick={() => void signOut()}
-            className="text-sm text-[#00E5A0]/90 transition hover:text-[#00E5A0]"
+      <header className="flex flex-col gap-6 border-b border-white/[0.08] pb-10 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <Link
+            href="/"
+            className="font-display text-2xl tracking-tight text-paid-mist transition hover:text-[#00E5A0]"
           >
-            Sign out
-          </button>
+            Paid
+          </Link>
+          <p className="mt-2 font-mono text-[11px] uppercase tracking-[0.2em] text-white/40">
+            Setup
+          </p>
+          <p className="mt-4 text-sm text-paid-mist/55">Signed in as {email}</p>
         </div>
-      </div>
+        <button
+          type="button"
+          onClick={() => void signOut()}
+          className="shrink-0 rounded-lg border border-white/20 px-4 py-2.5 text-sm font-semibold text-paid-mist transition hover:border-[#00E5A0]/45 hover:text-[#00E5A0]"
+        >
+          Sign out
+        </button>
+      </header>
 
       <ol className="space-y-6">
         <li className={card(step >= 1)}>
@@ -157,18 +167,20 @@ export function OnboardingClient({
           <h2 className="mt-2 font-display text-xl text-paid-mist">
             Install the Gmail Add-On
           </h2>
-          <p className="mt-3 rounded-md border border-[#00E5A0]/25 bg-[#00E5A0]/5 px-4 py-3 text-sm leading-relaxed text-paid-mist/85">
-            <span className="font-semibold text-[#00E5A0]">
-              {"Coming soon \u2014 install instructions below"}
-            </span>
-          </p>
-          <p className="mt-4 text-sm leading-relaxed text-paid-mist/70">
-            After generating your connection key below, open Gmail, click the
-            Paid icon in the right sidebar, and paste your API base URL (
+          <p className="mt-4 text-sm leading-relaxed text-paid-mist/75">
+            Open Gmail{" "}
+            <span className="text-paid-mist/50" aria-hidden>
+              →
+            </span>{" "}
+            look for the Paid icon in the right sidebar{" "}
+            <span className="text-paid-mist/50" aria-hidden>
+              →
+            </span>{" "}
+            enter your API base URL (
             <span className="font-mono text-[13px] text-paid-mist/90">
               https://paid-app.com
             </span>
-            ) and connection key into the settings form.
+            ) and the connection key below.
           </p>
           <p className="mt-6 text-sm text-paid-mist/60">
             Generate a connection key for the add-on (you can rotate it anytime):
@@ -200,7 +212,7 @@ export function OnboardingClient({
             {canFinishSetup ? (
               <>
                 <p className="text-sm text-paid-mist/70">
-                  When you are ready, finish setup to open your dashboard.
+                  When you are ready, continue to your dashboard.
                 </p>
                 <button
                   type="button"
@@ -208,7 +220,7 @@ export function OnboardingClient({
                   onClick={() => void completeOnboarding()}
                   className="mt-4 rounded-lg border border-[#00E5A0]/50 bg-[#00E5A0]/10 px-5 py-2.5 text-sm font-semibold text-[#00E5A0] transition hover:bg-[#00E5A0]/15 disabled:opacity-50"
                 >
-                  {completing ? "Saving…" : "Finish setup"}
+                  {completing ? "Saving…" : "Go to dashboard"}
                 </button>
                 {completeError && (
                   <p className="mt-2 text-sm text-red-400" role="alert">

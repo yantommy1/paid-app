@@ -345,7 +345,7 @@ export function OverdueInvoicesPanel() {
         <section className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-8">
           <h3 className="font-display text-xl text-paid-mist">No open invoices</h3>
           <p className="mt-2 text-sm leading-relaxed text-paid-mist/60">
-            Connect QuickBooks and sync to pull in unpaid invoices.
+            No open invoices found. Sync your QuickBooks account to get started.
           </p>
           <button
             type="button"
@@ -444,9 +444,9 @@ export function OverdueInvoicesPanel() {
                             <p className="font-mono text-[10px] uppercase tracking-wider text-white/40">
                               Body
                             </p>
-                            <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed text-paid-mist/85">
+                            <div className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap font-sans text-sm leading-relaxed text-paid-mist/85">
                               {draft.body}
-                            </pre>
+                            </div>
                           </div>
                           <div className="flex flex-wrap gap-3">
                             <button
@@ -469,7 +469,7 @@ export function OverdueInvoicesPanel() {
                               rel="noopener noreferrer"
                               className="rounded-md border border-white/20 px-4 py-2 text-sm font-semibold text-paid-mist transition hover:border-[#00E5A0]/45 hover:text-[#00E5A0]"
                             >
-                              Edit in Gmail
+                              Open in Gmail
                             </a>
                           </div>
                         </div>

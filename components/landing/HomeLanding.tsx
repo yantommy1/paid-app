@@ -4,6 +4,7 @@ import type { AuthIntent } from "@/components/LandingEmailForm";
 import { LandingEmailForm } from "@/components/LandingEmailForm";
 import { GmailSidebarMockup } from "@/components/landing/GmailSidebarMockup";
 import { SectionReveal } from "@/components/landing/SectionReveal";
+import Link from "next/link";
 import { useCallback, useRef, useState } from "react";
 
 export function HomeLanding() {
@@ -49,10 +50,21 @@ export function HomeLanding() {
             <button
               type="button"
               onClick={() => setModalOpen(false)}
-              className="absolute right-4 top-4 rounded p-1 text-2xl leading-none text-paid-mist/50 transition hover:text-paid-mist"
+              className="absolute right-4 top-4 rounded p-1.5 text-paid-mist/50 transition hover:bg-white/5 hover:text-paid-mist"
               aria-label="Close"
             >
-              ×
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                className="h-5 w-5"
+                aria-hidden
+              >
+                <path d="M18 6 6 18M6 6l12 12" />
+              </svg>
             </button>
             <h2
               id="auth-modal-title"
@@ -62,8 +74,8 @@ export function HomeLanding() {
             </h2>
             <p className="mt-2 text-sm leading-relaxed text-paid-mist/60">
               {modalIntent === "signup"
-                ? "Use a magic link or password \u2014 your choice in the form below."
-                : "Magic link or password \u2014 pick what works best for you."}
+                ? "Use a sign-in link or password \u2014 your choice in the form below."
+                : "Sign-in link or password \u2014 pick what works best for you."}
             </p>
             <div className="mt-6">
               <LandingEmailForm
@@ -105,6 +117,10 @@ export function HomeLanding() {
           <div className="mx-auto grid max-w-6xl grid-cols-1 gap-14 px-6 py-20 lg:grid-cols-[minmax(0,1.08fr)_minmax(0,0.92fr)] lg:items-center lg:py-28">
             <SectionReveal>
               <div>
+                <div
+                  className="mb-6 h-0.5 w-[60px] bg-[#00E5A0]"
+                  aria-hidden
+                />
                 <h1 className="font-display text-[2.65rem] font-normal leading-[0.98] tracking-tight text-paid-mist sm:text-5xl md:text-6xl lg:text-[4.25rem]">
                   Your invoices.
                   <br />
@@ -112,7 +128,10 @@ export function HomeLanding() {
                 </h1>
                 <p className="mt-6 max-w-xl text-lg leading-relaxed text-paid-mist/72">
                   Paid connects QuickBooks and Gmail, then sends AI-drafted payment
-                  reminders in your voice \u2014 automatically.
+                  reminders in your voice{" "}
+                  <span className="whitespace-nowrap">
+                    {"\u2014 automatically."}
+                  </span>
                 </p>
                 <div className="mt-10 flex flex-wrap items-center gap-4">
                   <button
@@ -244,7 +263,7 @@ export function HomeLanding() {
               <div className="grid gap-14 lg:grid-cols-2 lg:gap-20">
                 <div>
                   <h2 className="font-display text-3xl leading-[1.12] tracking-tight text-paid-mist md:text-4xl lg:text-[2.65rem]">
-                    Built for firms that bill on trust \u2014 and need cash in the door.
+                    {"Built for firms that bill on trust \u2014 and need cash in the door."}
                   </h2>
                 </div>
                 <ul className="divide-y divide-white/[0.08] border-t border-white/[0.08]">
@@ -323,6 +342,9 @@ export function HomeLanding() {
                   </button>
                 </div>
               </div>
+              <p className="mt-6 text-center text-sm text-paid-mist/45">
+                No credit card required to start. Cancel anytime.
+              </p>
 
               <div className="mx-auto mt-20 max-w-lg border border-white/[0.1] bg-white/[0.02] p-8 md:p-10">
                 <div className="flex flex-wrap gap-2 rounded-md border border-white/10 p-1">
@@ -356,7 +378,7 @@ export function HomeLanding() {
                 </h3>
                 <p className="mt-2 text-sm leading-relaxed text-paid-mist/60">
                   {inlineIntent === "signup"
-                    ? "Enter your work email \u2014 we will send a link to get you started in one click."
+                    ? "Enter your work email \u2014 we will send a secure link to get you started."
                     : "Enter the email you used before \u2014 we will send a link to open Paid."}
                 </p>
                 <div className="mt-8">
@@ -373,13 +395,32 @@ export function HomeLanding() {
 
         <footer className="border-t border-white/[0.08]">
           <div className="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-12 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-8">
-              <span className="font-display text-xl text-paid-mist">Paid</span>
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+                <span className="font-display text-xl text-paid-mist">Paid</span>
+                <nav
+                  className="flex flex-wrap items-center gap-x-5 text-sm text-paid-mist/55"
+                  aria-label="Legal"
+                >
+                  <Link
+                    href="/privacy"
+                    className="transition hover:text-paid-mist"
+                  >
+                    Privacy
+                  </Link>
+                  <Link
+                    href="/terms"
+                    className="transition hover:text-paid-mist"
+                  >
+                    Terms
+                  </Link>
+                </nav>
+              </div>
               <span className="text-sm text-paid-mist/50">
                 Built for professional services firms.
               </span>
             </div>
-            <p className="text-sm text-paid-mist/40">
+            <p className="text-sm text-paid-mist/40 sm:shrink-0">
               {"\u00A9 "}
               {new Date().getFullYear()} Paid. All rights reserved.
             </p>
