@@ -1,4 +1,8 @@
-import { bearerLooksLikeJwt, bearerLooksLikePaidApiKey } from "@/lib/api/bearer-kind";
+import {
+  bearerLooksLikeJwt,
+  bearerLooksLikeRfc4122Uuid,
+  normalizeBearerToken,
+} from "@/lib/api/bearer-kind";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@supabase/supabase-js";
 import type { User } from "@supabase/supabase-js";
@@ -6,20 +10,22 @@ import type { NextRequest } from "next/server";
 
 /**
  * Resolve Supabase user from cookie session (browser) or Authorization Bearer:
- * Supabase JWT (web / short-lived) or Paid API key (Gmail Add-On).
+ * Paid API key (RFC 4122 UUID in `api_keys`) or Supabase JWT.
  */
 export async function getUserFromRequest(
   request: NextRequest
 ): Promise<{ user: User | null; error: string | null }> {
   const authHeader = request.headers.get("authorization");
-  const bearer =
-    authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : null;
+  const bearer = normalizeBearerToken(
+    authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null
+  );
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
   if (bearer) {
-    if (bearerLooksLikePaidApiKey(bearer)) {
+    // UUID-shaped tokens are API keys (not valid JWTs — JWTs use dot separators).
+    if (bearerLooksLikeRfc4122Uuid(bearer)) {
       const admin = createAdminClient();
       const { data: row, error: rowErr } = await admin
         .from("api_keys")

@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
   const { data, error } = await supabase
     .from("invoices")
     .select(
-      "id, client_name, quickbooks_invoice_id, amount, days_overdue, status, due_date"
+      "id, client_name, client_email, quickbooks_invoice_id, amount, days_overdue, status, due_date, line_items"
     )
     .eq("user_id", ctx.user.id)
     .eq("client_email", email)

@@ -3,7 +3,10 @@ import { requireUserFromRequest } from "@/lib/api/require-user-request";
 import { createRouteHandlerClient } from "@/lib/supabase/route-client";
 import { NextRequest, NextResponse } from "next/server";
 
-/** Cohort totals (+ optional header stats) for dashboards */
+/**
+ * Single payload for Gmail add-on home: cohorts, header stats, full invoice rows.
+ * Avoids multiple round-trips from Apps Script.
+ */
 export async function GET(request: NextRequest) {
   const ctx = await requireUserFromRequest(request);
   if (ctx.response) return ctx.response;
@@ -11,9 +14,10 @@ export async function GET(request: NextRequest) {
   const supabase = await createRouteHandlerClient(request);
   const { data: rows, error } = await supabase
     .from("invoices")
-    .select("amount, days_overdue, status, client_email")
+    .select("*")
     .eq("user_id", ctx.user.id)
-    .neq("status", "paid");
+    .neq("status", "paid")
+    .order("days_overdue", { ascending: false });
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -23,5 +27,9 @@ export async function GET(request: NextRequest) {
   const cohorts = computeCohorts(list);
   const header = computeSidebarHeader(list);
 
-  return NextResponse.json({ cohorts, header });
+  return NextResponse.json({
+    cohorts,
+    header,
+    invoices: list,
+  });
 }

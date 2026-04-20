@@ -3,7 +3,7 @@
  *
  * Configure in Script properties (Project Settings):
  *   PAID_API_BASE  e.g. https://getpaid.ai
- *   PAID_API_KEY   Long-lived key from POST /api/auth/api-key (browser, logged in) — see onboarding
+ *   PAID_API_KEY   Paste the key from your browser (see Settings note — Open Link is blocked in Gmail)
  *
  * Or use the “Connect Paid” card on first load to paste both values.
  *
@@ -13,6 +13,12 @@
 
 var PROP_API = 'PAID_API_BASE';
 var PROP_API_KEY = 'PAID_API_KEY';
+
+/** Cohort dot swatches (Linear-style accents) */
+var DOT_90 = 'https://placehold.co/10x10/dc2626/dc2626.png';
+var DOT_60 = 'https://placehold.co/10x10/ea580c/ea580c.png';
+var DOT_30 = 'https://placehold.co/10x10/ca8a04/ca8a04.png';
+var DOT_OK = 'https://placehold.co/10x10/16a34a/16a34a.png';
 
 /** Right-rail home: full outstanding view + cohort totals + Send All Reminders. */
 function onGmailHomePage(e) {
@@ -80,6 +86,7 @@ function onDraftReminder(e) {
     cacheReminderDraft_(id, clientEmail, subject, body);
     return CardService.newActionResponseBuilder()
       .setNavigation(CardService.newNavigation().pushCard(buildDraftPreviewCard_(String(id))))
+      .setNotification(CardService.newNotification().setText('Draft ready'))
       .build();
   } catch (err) {
     return CardService.newActionResponseBuilder()
@@ -247,20 +254,19 @@ function buildDraftPreviewCard_(invoiceId) {
   var body = draft && draft.body ? draft.body : '';
 
   var card = CardService.newCardBuilder().setHeader(
-    CardService.newCardHeader()
-      .setTitle('Review draft')
-      .setSubtitle('Edit in Gmail or send from here')
+    CardService.newCardHeader().setTitle('Draft').setSubtitle('Review before sending')
   );
 
   card.addSection(
     CardService.newCardSection()
-      .setHeader('Subject')
-      .addWidget(CardService.newTextParagraph().setText(subj || '(empty)'))
-  );
-  card.addSection(
-    CardService.newCardSection()
-      .setHeader('Body')
-      .addWidget(CardService.newTextParagraph().setText(truncateForCard_(body, 4000)))
+      .addWidget(
+        CardService.newDecoratedText()
+          .setText(subj || '—')
+          .setWrapText(true)
+      )
+      .addWidget(
+        CardService.newTextParagraph().setText(truncateForCard_(body, 8000))
+      )
   );
 
   card.addSection(
@@ -268,21 +274,23 @@ function buildDraftPreviewCard_(invoiceId) {
       CardService.newButtonSet()
         .addButton(
           CardService.newTextButton()
-            .setText('Open in Gmail')
+            .setText('Send Now')
+            .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+            .setOnClickAction(
+              CardService.newAction()
+                .setFunctionName('onSendReminder')
+                .setParameters({ invoiceId: String(invoiceId) })
+            )
+        )
+        .addButton(
+          CardService.newTextButton()
+            .setText('Compose in Gmail')
+            .setTextButtonStyle(CardService.TextButtonStyle.OUTLINED)
             .setComposeAction(
               CardService.newAction()
                 .setFunctionName('onOpenPaidCompose')
                 .setParameters({ invoiceId: String(invoiceId) }),
               CardService.ComposedEmailType.STANDALONE_DRAFT
-            )
-        )
-        .addButton(
-          CardService.newTextButton()
-            .setText('Send Now')
-            .setOnClickAction(
-              CardService.newAction()
-                .setFunctionName('onSendReminder')
-                .setParameters({ invoiceId: String(invoiceId) })
             )
         )
     )
@@ -291,131 +299,230 @@ function buildDraftPreviewCard_(invoiceId) {
   return card.build();
 }
 
+function formatHeaderLine_(header) {
+  if (!header) return '';
+  var total = fmtMoney_(header.totalOutstanding);
+  var clients = header.overdueClientCount || 0;
+  var avg = header.avgDaysOverdue || 0;
+  return (
+    total +
+    ' outstanding · ' +
+    clients +
+    ' client' +
+    (clients === 1 ? '' : 's') +
+    ' overdue · avg ' +
+    avg +
+    ' days'
+  );
+}
+
+function formatDueDate_(iso) {
+  if (!iso) return '';
+  try {
+    var s = String(iso);
+    var d = new Date(s.length <= 10 ? s + 'T12:00:00' : s);
+    return 'Due ' + Utilities.formatDate(d, Session.getScriptTimeZone(), 'MMM d, yyyy');
+  } catch (err) {
+    return '';
+  }
+}
+
+function firstLineService_(lineItems) {
+  if (!lineItems || typeof lineItems !== 'string') return '';
+  var line = lineItems.split('\n')[0].trim();
+  if (line.length > 140) line = line.substring(0, 137) + '…';
+  return line;
+}
+
+function severityDotUrl_(days) {
+  var d = Number(days) || 0;
+  if (d >= 90) return DOT_90;
+  if (d >= 60) return DOT_60;
+  if (d >= 30) return DOT_30;
+  return DOT_OK;
+}
+
+function buildCohortRow_(dotUrl, label, cohort) {
+  var c = cohort || { total: 0, count: 0 };
+  return CardService.newDecoratedText()
+    .setStartIcon(CardService.newIconImage().setIconUrl(dotUrl))
+    .setText(label)
+    .setBottomLabel(fmtMoney_(c.total) + ' · ' + n_(c.count));
+}
+
+function appendInvoiceBlock_(section, row, withDivider) {
+  if (withDivider) {
+    section.addWidget(CardService.newDivider());
+  }
+  section.addWidget(
+    CardService.newKeyValue()
+      .setTopLabel(row.client_name || 'Client')
+      .setContent(fmtMoney_(row.amount))
+  );
+  var dotUrl = severityDotUrl_(row.days_overdue);
+  section.addWidget(
+    CardService.newDecoratedText()
+      .setStartIcon(CardService.newIconImage().setIconUrl(dotUrl))
+      .setText(String(row.days_overdue || 0) + ' days')
+  );
+  var dueLine = formatDueDate_(row.due_date);
+  if (dueLine) {
+    section.addWidget(CardService.newTextParagraph().setText(dueLine));
+  }
+  section.addWidget(
+    CardService.newTextParagraph().setText('Invoice #' + row.quickbooks_invoice_id)
+  );
+  var svc = firstLineService_(row.line_items);
+  if (svc) {
+    section.addWidget(CardService.newTextParagraph().setText('— ' + svc));
+  }
+  section.addWidget(
+    CardService.newButtonSet().addButton(
+      CardService.newTextButton()
+        .setText('Draft Reminder')
+        .setTextButtonStyle(CardService.TextButtonStyle.OUTLINED)
+        .setOnClickAction(
+          CardService.newAction()
+            .setFunctionName('onDraftReminder')
+            .setParameters({
+              invoiceId: String(row.id),
+              clientEmail: String(row.client_email || ''),
+            })
+        )
+    )
+  );
+}
+
 // --- UI builders ---
 
+/**
+ * Single GET to gmail-sidebar when deployed; if that route returns 404 (older deploy),
+ * merge GET /api/invoices/summary + GET /api/invoices (same shape as gmail-sidebar).
+ */
+function fetchGmailSidebarPack_() {
+  var primary = paidFetch_('/api/invoices/gmail-sidebar', { method: 'get' });
+  if (primary.statusCode === 200) {
+    return { ok: true, data: JSON.parse(primary.body) };
+  }
+  if (primary.statusCode === 404) {
+    var sum = paidFetch_('/api/invoices/summary', { method: 'get' });
+    var inv = paidFetch_('/api/invoices', { method: 'get' });
+    if (sum.statusCode !== 200) {
+      return { ok: false, statusCode: sum.statusCode, body: sum.body };
+    }
+    if (inv.statusCode !== 200) {
+      return { ok: false, statusCode: inv.statusCode, body: inv.body };
+    }
+    var s = JSON.parse(sum.body);
+    var i = JSON.parse(inv.body);
+    return {
+      ok: true,
+      data: {
+        cohorts: s.cohorts || {},
+        header: s.header || {},
+        invoices: i.invoices || [],
+      },
+    };
+  }
+  return { ok: false, statusCode: primary.statusCode, body: primary.body };
+}
+
 function buildHomePage_(e) {
-  var card = CardService.newCardBuilder().setHeader(
-    CardService.newCardHeader().setTitle('Paid').setSubtitle('Outstanding invoices')
-  );
+  var card = CardService.newCardBuilder();
 
   if (!getApiKey_() || !getApiBase_()) {
-    return card.addSection(buildSettingsSection_()).build();
+    return card
+      .setHeader(CardService.newCardHeader().setTitle('Paid').setSubtitle('Connect to continue'))
+      .addSection(buildSettingsSection_())
+      .build();
   }
 
   try {
-    var sum = paidFetch_('/api/invoices/summary', { method: 'get' });
-    var inv = paidFetch_('/api/invoices', { method: 'get' });
-    if (sum.statusCode !== 200 || inv.statusCode !== 200) {
+    var pack = fetchGmailSidebarPack_();
+    if (!pack.ok) {
       return card
+        .setHeader(CardService.newCardHeader().setTitle('Paid'))
         .addSection(
           CardService.newCardSection().addWidget(
             CardService.newTextParagraph().setText(
-              'Could not load data. Check API key and API base. ' + sum.body
+              'Could not load data. HTTP ' + pack.statusCode + ' ' + pack.body
             )
           )
         )
         .build();
     }
-    var summary = JSON.parse(sum.body);
-    var list = JSON.parse(inv.body);
-    var cohorts = summary.cohorts || {};
 
-    card.addSection(
-      CardService.newCardSection()
-        .setHeader('Totals by age')
-        .addWidget(
-          CardService.newTextParagraph().setText(
-            '🟢 Current: ' +
-              fmtMoney_(cohorts.current && cohorts.current.total) +
-              ' (' +
-              n_(cohorts.current && cohorts.current.count) +
-              ')\n' +
-              '🟡 30–60d: ' +
-              fmtMoney_(cohorts.d30 && cohorts.d30.total) +
-              ' (' +
-              n_(cohorts.d30 && cohorts.d30.count) +
-              ')\n' +
-              '🟠 60–90d: ' +
-              fmtMoney_(cohorts.d60 && cohorts.d60.total) +
-              ' (' +
-              n_(cohorts.d60 && cohorts.d60.count) +
-              ')\n' +
-              '🔴 90+d: ' +
-              fmtMoney_(cohorts.d90 && cohorts.d90.total) +
-              ' (' +
-              n_(cohorts.d90 && cohorts.d90.count) +
-              ')'
-          )
-        )
+    var data = pack.data;
+    var cohorts = data.cohorts || {};
+    var header = data.header || {};
+    var invoices = data.invoices || [];
+
+    card.setHeader(
+      CardService.newCardHeader()
+        .setTitle('Paid')
+        .setSubtitle(formatHeaderLine_(header))
     );
 
-    var invoices = list.invoices || [];
-    var section = CardService.newCardSection().setHeader('All open invoices');
-    if (!invoices.length) {
-      section.addWidget(CardService.newTextParagraph().setText('No unpaid invoices.'));
+    var cohortSec = CardService.newCardSection();
+    cohortSec.addWidget(buildCohortRow_(DOT_90, '90+ days', cohorts.d90));
+    cohortSec.addWidget(buildCohortRow_(DOT_60, '60–90 days', cohorts.d60));
+    cohortSec.addWidget(buildCohortRow_(DOT_30, '30–60 days', cohorts.d30));
+    cohortSec.addWidget(buildCohortRow_(DOT_OK, 'Current', cohorts.current));
+    card.addSection(cohortSec);
+
+    var overdue = invoices.filter(function (r) {
+      return (r.days_overdue || 0) >= 30;
+    });
+
+    var listSec = CardService.newCardSection();
+    if (!overdue.length) {
+      listSec.addWidget(
+        CardService.newDecoratedText()
+          .setText('No invoices overdue 30+ days')
+          .setBottomLabel('Open balances by age are in the summary above')
+      );
     } else {
-      invoices.slice(0, 20).forEach(function (row) {
-        section.addWidget(
-          CardService.newButtonSet().addButton(
-            CardService.newTextButton()
-              .setText(row.client_name + ' · ' + fmtMoney_(row.amount) + ' · ' + row.days_overdue + 'd')
-              .setOnClickAction(
-                CardService.newAction()
-                  .setFunctionName('onDraftReminder')
-                  .setParameters({
-                    invoiceId: String(row.id),
-                    clientEmail: String(row.client_email || ''),
-                  })
-              )
-              .setTextButtonStyle(CardService.TextButtonStyle.TEXT)
-          )
-        );
-        section.addWidget(
-          CardService.newTextParagraph().setText(
-            severityLabel_(row.days_overdue) + ' Inv #' + row.quickbooks_invoice_id
-          )
-        );
+      overdue.slice(0, 25).forEach(function (row, idx) {
+        appendInvoiceBlock_(listSec, row, idx > 0);
       });
-      if (invoices.length > 20) {
-        section.addWidget(
-          CardService.newTextParagraph().setText('…and ' + (invoices.length - 20) + ' more in the web app.')
+      if (overdue.length > 25) {
+        listSec.addWidget(
+          CardService.newTextParagraph().setText(
+            '— ' + (overdue.length - 25) + ' more in the web app'
+          )
         );
       }
     }
-    card.addSection(section);
+    card.addSection(listSec);
 
-    card
-      .addSection(
-        CardService.newCardSection()
-          .addWidget(
-            CardService.newButtonSet()
-              .addButton(
-                CardService.newTextButton()
-                  .setText('Send all reminders (30d+)')
-                  .setOnClickAction(
-                    CardService.newAction().setFunctionName('onQueueAllReminders')
-                  )
-              )
-              .addButton(
-                CardService.newTextButton()
-                  .setText('Get API key')
-                  .setOpenLink(
-                    CardService.newOpenLink().setUrl(
-                      getApiBase_() + '/api/auth/api-key?format=plain'
-                    )
-                  )
-              )
-          )
-      )
-      .addCardAction(
-        CardService.newCardAction()
-          .setText('Refresh')
-          .setOnClickAction(CardService.newAction().setFunctionName('onRefreshHome'))
-      );
+    var foot = CardService.newCardSection();
+    foot.addWidget(
+      CardService.newButtonSet()
+        .addButton(
+          CardService.newTextButton()
+            .setText('Queue drafts (30d+)')
+            .setTextButtonStyle(CardService.TextButtonStyle.OUTLINED)
+            .setOnClickAction(CardService.newAction().setFunctionName('onQueueAllReminders'))
+        )
+        .addButton(
+          CardService.newTextButton()
+            .setText('Settings')
+            .setTextButtonStyle(CardService.TextButtonStyle.TEXT)
+            .setOnClickAction(CardService.newAction().setFunctionName('onOpenSettings'))
+        )
+    );
+    card.addSection(foot);
+
+    card.addCardAction(
+      CardService.newCardAction()
+        .setText('Refresh')
+        .setOnClickAction(CardService.newAction().setFunctionName('onRefreshHome'))
+    );
 
     return card.build();
   } catch (err) {
     return card
+      .setHeader(CardService.newCardHeader().setTitle('Paid'))
       .addSection(
         CardService.newCardSection().addWidget(
           CardService.newTextParagraph().setText('Error: ' + String(err))
@@ -431,12 +538,36 @@ function onRefreshHome(e) {
     .build();
 }
 
+/** Bottom nav: open minimal settings card */
+function onOpenSettings(e) {
+  return CardService.newActionResponseBuilder()
+    .setNavigation(CardService.newNavigation().updateCard(buildSettingsCard_(e)))
+    .build();
+}
+
+function onBackHome(e) {
+  return CardService.newActionResponseBuilder()
+    .setNavigation(CardService.newNavigation().updateCard(buildHomePage_(e)))
+    .build();
+}
+
+function buildSettingsCard_(e) {
+  return CardService.newCardBuilder()
+    .setHeader(CardService.newCardHeader().setTitle('Paid').setSubtitle('Connection'))
+    .addSection(buildSettingsSection_())
+    .addCardAction(
+      CardService.newCardAction()
+        .setText('Done')
+        .setOnClickAction(CardService.newAction().setFunctionName('onBackHome'))
+    )
+    .build();
+}
+
 function buildSettingsSection_() {
   return CardService.newCardSection()
-    .setHeader('Connect Paid')
     .addWidget(
       CardService.newTextParagraph().setText(
-        'Paste your API base (e.g. https://getpaid.ai) and Paid API key (generate in the web app after signing in).'
+        'Get your API key at paid-app.com/api/auth/api-key (open in your browser while signed in, copy the key, paste here).'
       )
     )
     .addWidget(
@@ -446,12 +577,13 @@ function buildSettingsSection_() {
         .setHint('https://getpaid.ai')
     )
     .addWidget(
-      CardService.newTextInput().setFieldName('api_key').setTitle('Paid API key (Bearer)')
+      CardService.newTextInput().setFieldName('api_key').setTitle('API key')
     )
     .addWidget(
       CardService.newButtonSet().addButton(
         CardService.newTextButton()
           .setText('Save')
+          .setTextButtonStyle(CardService.TextButtonStyle.OUTLINED)
           .setOnClickAction(CardService.newAction().setFunctionName('onSavePaidSettings'))
       )
     );
@@ -502,7 +634,7 @@ function buildContextualForCompose_(e) {
 
 function buildCardsForEmails_(emails) {
   var builder = CardService.newCardBuilder().setHeader(
-    CardService.newCardHeader().setTitle('Paid').setSubtitle('Matches for this thread')
+    CardService.newCardHeader().setTitle('Paid').setSubtitle('This conversation')
   );
 
   for (var i = 0; i < emails.length; i++) {
@@ -514,58 +646,51 @@ function buildCardsForEmails_(emails) {
       );
       if (res.statusCode !== 200) {
         builder.addSection(
-          CardService.newCardSection()
-            .setHeader(email)
-            .addWidget(
-              CardService.newTextParagraph().setText(
-                'Could not load invoices (' + res.statusCode + ').'
-              )
-            )
+          CardService.newCardSection().addWidget(
+            CardService.newDecoratedText()
+              .setText(email)
+              .setBottomLabel('Could not load (' + res.statusCode + ')')
+          )
         );
         continue;
       }
       var data = JSON.parse(res.body);
       var rows = data.invoices || [];
+      var overdue = rows.filter(function (r) {
+        return (r.days_overdue || 0) >= 30;
+      });
+
       if (!rows.length) {
         builder.addSection(
-          CardService.newCardSection()
-            .setHeader(email)
-            .addWidget(CardService.newTextParagraph().setText('No open invoices for this address.'))
+          CardService.newCardSection().addWidget(
+            CardService.newDecoratedText()
+              .setText(email)
+              .setBottomLabel('No open invoices')
+          )
         );
         continue;
       }
-      var sec = CardService.newCardSection().setHeader(email + ' · ' + rows.length + ' open');
-      for (var j = 0; j < rows.length; j++) {
-        var row = rows[j];
-        sec.addWidget(
-          CardService.newTextParagraph().setText(
-            severityLabel_(row.days_overdue) +
-              ' ' +
-              row.client_name +
-              ' · #' +
-              row.quickbooks_invoice_id +
-              ' · ' +
-              fmtMoney_(row.amount) +
-              ' · ' +
-              row.days_overdue +
-              'd late'
+
+      if (!overdue.length) {
+        builder.addSection(
+          CardService.newCardSection().addWidget(
+            CardService.newDecoratedText()
+              .setText(email)
+              .setBottomLabel('No overdue invoices (30d+)')
           )
         );
-        sec.addWidget(
-          CardService.newButtonSet().addButton(
-            CardService.newTextButton()
-              .setText('Send reminder')
-              .setOnClickAction(
-                CardService.newAction()
-                  .setFunctionName('onDraftReminder')
-                  .setParameters({
-                    invoiceId: String(row.id),
-                    clientEmail: String(row.client_email || ''),
-                  })
-              )
-          )
-        );
+        continue;
       }
+
+      var sec = CardService.newCardSection();
+      sec.addWidget(
+        CardService.newDecoratedText()
+          .setText(email)
+          .setBottomLabel(overdue.length + ' overdue · ' + fmtMoney_(sumAmount_(overdue)))
+      );
+      overdue.forEach(function (row, idx) {
+        appendInvoiceBlock_(sec, row, idx > 0);
+      });
       builder.addSection(sec);
     } catch (err) {
       builder.addSection(
@@ -579,16 +704,22 @@ function buildCardsForEmails_(emails) {
   return builder.build();
 }
 
+function sumAmount_(rows) {
+  var t = 0;
+  rows.forEach(function (r) {
+    t += Number(r.amount) || 0;
+  });
+  return t;
+}
+
 function buildReviewQueueCard_(queue) {
   var card = CardService.newCardBuilder().setHeader(
-    CardService.newCardHeader()
-      .setTitle('Review reminders')
-      .setSubtitle('Preview each draft before sending')
+    CardService.newCardHeader().setTitle('Queued drafts').setSubtitle('30+ days · preview to send')
   );
   if (!queue.length) {
     card.addSection(
       CardService.newCardSection().addWidget(
-        CardService.newTextParagraph().setText('Nothing in the 30+ day queue.')
+        CardService.newTextParagraph().setText('Nothing in queue.')
       )
     );
     return card.build();
@@ -596,17 +727,25 @@ function buildReviewQueueCard_(queue) {
 
   queue.forEach(function (item, i) {
     cacheReminderDraft_(item.invoiceId, item.clientEmail, item.subject, item.body);
-    var sec = CardService.newCardSection().setHeader(
-      '#' + (i + 1) + ' ' + item.clientName + ' · ' + item.daysOverdue + 'd'
-    );
-    sec.addWidget(CardService.newTextParagraph().setText(item.subject));
+    var sec = CardService.newCardSection();
+    if (i > 0) {
+      sec.addWidget(CardService.newDivider());
+    }
     sec.addWidget(
-      CardService.newTextParagraph().setText(item.body.length > 400 ? item.body.substring(0, 400) + '…' : item.body)
+      CardService.newDecoratedText()
+        .setText(item.clientName || 'Client')
+        .setBottomLabel(item.daysOverdue + ' days · ' + fmtMoney_(item.amount))
+    );
+    sec.addWidget(
+      CardService.newTextParagraph().setText(
+        item.body.length > 320 ? item.body.substring(0, 320) + '…' : item.body
+      )
     );
     sec.addWidget(
       CardService.newButtonSet().addButton(
         CardService.newTextButton()
-          .setText('Review & send')
+          .setText('Preview')
+          .setTextButtonStyle(CardService.TextButtonStyle.OUTLINED)
           .setOnClickAction(
             CardService.newAction()
               .setFunctionName('onShowQueuedDraft')
@@ -674,14 +813,6 @@ function fmtMoney_(n) {
 function n_(x) {
   return x === undefined || x === null ? 0 : x;
 }
-
-function severityLabel_(days) {
-  if (days >= 90) return '🔴';
-  if (days >= 60) return '🟠';
-  if (days >= 30) return '🟡';
-  return '🟢';
-}
-
 
 function uniqueLower_(arr) {
   var seen = {};
