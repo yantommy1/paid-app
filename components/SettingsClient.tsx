@@ -3,7 +3,10 @@
 import { createClient } from "@/lib/supabase/browser";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+
+const GMAIL_ADDON_INSTALL_URL =
+  "https://script.google.com/macros/s/AKfycbziHm_MsqZ3dRjMoDyKgHUYpkTATh7Bu4B7f82YD8l9/exec";
 
 type Props = {
   email: string;
@@ -34,37 +37,13 @@ export function SettingsClient({
   const [gmConn, setGmConn] = useState(gmInitial);
   const [qbBusy, setQbBusy] = useState(false);
   const [gmBusy, setGmBusy] = useState(false);
-  const [apiBusy, setApiBusy] = useState(false);
-  const [apiKeyMessage, setApiKeyMessage] = useState<string | null>(null);
-  const [newApiKey, setNewApiKey] = useState<string | null>(null);
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleteBusy, setDeleteBusy] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [keyBusy, setKeyBusy] = useState(false);
+  const [keyMessage, setKeyMessage] = useState<string | null>(null);
 
   useEffect(() => {
     setQbConn(qbInitial);
     setGmConn(gmInitial);
   }, [qbInitial, gmInitial]);
-
-  const refreshStatus = useCallback(() => {
-    void fetch("/api/user/status", { credentials: "include" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then(
-        (data: {
-          quickbooksConnected?: boolean;
-          gmailConnected?: boolean;
-        } | null) => {
-          if (!data) return;
-          if (typeof data.quickbooksConnected === "boolean") {
-            setQbConn(data.quickbooksConnected);
-          }
-          if (typeof data.gmailConnected === "boolean") {
-            setGmConn(data.gmailConnected);
-          }
-        }
-      )
-      .catch(() => {});
-  }, []);
 
   async function signOut() {
     const supabase = createClient();
@@ -103,49 +82,33 @@ export function SettingsClient({
     }
   }
 
-  async function regenerateApiKey() {
-    setApiBusy(true);
-    setApiKeyMessage(null);
-    setNewApiKey(null);
+  async function generateConnectionKey() {
+    setKeyBusy(true);
+    setKeyMessage(null);
     try {
       const res = await fetch("/api/auth/api-key", { method: "POST" });
       const j = (await res.json()) as { api_key?: string; error?: string };
       if (!res.ok) {
-        setApiKeyMessage(j.error ?? "Could not create a new key.");
+        setKeyMessage(j.error ?? "Could not generate a key. Try again.");
         return;
       }
       if (j.api_key) {
-        setNewApiKey(j.api_key);
-        setApiKeyMessage(
-          "New API key generated. Copy it now — it won’t be shown again in full."
+        try {
+          await navigator.clipboard.writeText(j.api_key);
+        } catch {
+          setKeyMessage(
+            "Key created but could not copy automatically — check browser permissions."
+          );
+          return;
+        }
+        setKeyMessage(
+          "Key copied to clipboard — paste it into the Paid sidebar in Gmail"
         );
       }
     } catch {
-      setApiKeyMessage("Something went wrong. Try again.");
+      setKeyMessage("Something went wrong. Try again.");
     } finally {
-      setApiBusy(false);
-    }
-  }
-
-  async function deleteAccount() {
-    setDeleteBusy(true);
-    setDeleteError(null);
-    try {
-      const res = await fetch("/api/user/account", { method: "DELETE" });
-      const j = (await res.json()) as { error?: string };
-      if (!res.ok) {
-        setDeleteError(j.error ?? "Could not delete account.");
-        return;
-      }
-      const supabase = createClient();
-      await supabase.auth.signOut();
-      setDeleteOpen(false);
-      router.push("/");
-      router.refresh();
-    } catch {
-      setDeleteError("Something went wrong. Try again.");
-    } finally {
-      setDeleteBusy(false);
+      setKeyBusy(false);
     }
   }
 
@@ -277,50 +240,42 @@ export function SettingsClient({
       </section>
 
       <section className={cardClass}>
-        <h3 className="font-display text-lg text-paid-mist">Gmail add-on</h3>
-        <p className="mt-3 text-sm leading-relaxed text-paid-mist/60">
-          Install the Paid add-on from the Google Workspace Marketplace (or your
-          admin-provided link), open Gmail, then in the add-on sidebar choose{" "}
-          <span className="text-paid-mist/85">Settings</span> and paste your Paid
-          API key when prompted. The add-on uses the same account as this
-          dashboard.
-        </p>
-        <div className="mt-6 flex flex-wrap gap-3">
-          <button
-            type="button"
-            disabled={apiBusy}
-            onClick={() => void regenerateApiKey()}
-            className="rounded-lg border border-white/20 px-4 py-2.5 text-sm font-semibold text-paid-mist transition hover:border-[#00E5A0]/45 hover:text-[#00E5A0] disabled:opacity-50"
+        <h3 className="font-display text-lg text-paid-mist">Gmail Add-On</h3>
+        <a
+          href={GMAIL_ADDON_INSTALL_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-5 inline-flex w-full items-center justify-center rounded-lg bg-[#00E5A0] px-5 py-3 text-sm font-semibold text-paid-ink transition hover:brightness-110 sm:w-auto"
+        >
+          Install Gmail Add-On
+        </a>
+        <ol className="mt-5 list-decimal space-y-2 pl-5 text-xs leading-relaxed text-paid-mist/45">
+          <li>Click Install Gmail Add-On above</li>
+          <li>Open Gmail — look for the Paid icon in the right sidebar</li>
+          <li>
+            Enter https://paid-app.com as the API base and paste your connection
+            key below
+          </li>
+        </ol>
+        <button
+          type="button"
+          disabled={keyBusy}
+          onClick={() => void generateConnectionKey()}
+          className="mt-6 rounded-lg border border-white/20 px-4 py-2.5 text-sm font-semibold text-paid-mist transition hover:border-[#00E5A0]/45 hover:text-[#00E5A0] disabled:opacity-50"
+        >
+          {keyBusy ? "Generating…" : "Generate connection key"}
+        </button>
+        {keyMessage && (
+          <p
+            className={`mt-4 text-sm ${
+              keyMessage.startsWith("Key copied")
+                ? "text-[#00E5A0]/90"
+                : "text-red-400/90"
+            }`}
+            role={keyMessage.startsWith("Key copied") ? "status" : "alert"}
           >
-            {apiBusy ? "Generating…" : "Regenerate API key"}
-          </button>
-          <button
-            type="button"
-            onClick={() => void refreshStatus()}
-            className="rounded-lg border border-white/10 px-4 py-2.5 text-sm font-medium text-paid-mist/75 transition hover:bg-white/[0.04]"
-          >
-            Refresh status
-          </button>
-        </div>
-        {apiKeyMessage && (
-          <p className="mt-4 text-sm text-paid-mist/70">{apiKeyMessage}</p>
-        )}
-        {newApiKey && (
-          <div className="mt-4 rounded-lg border border-white/10 bg-black/30 p-4">
-            <p className="font-mono text-xs text-paid-mist/50">API key</p>
-            <p className="mt-2 break-all font-mono text-sm text-[#00E5A0]">
-              {newApiKey}
-            </p>
-            <button
-              type="button"
-              className="mt-3 text-sm font-medium text-[#00E5A0] hover:underline"
-              onClick={() => {
-                void navigator.clipboard.writeText(newApiKey);
-              }}
-            >
-              Copy to clipboard
-            </button>
-          </div>
+            {keyMessage}
+          </p>
         )}
       </section>
 
@@ -333,67 +288,6 @@ export function SettingsClient({
           Sign out
         </button>
       </div>
-
-      <section className="rounded-xl border border-red-500/25 bg-red-500/[0.04] p-6">
-        <h3 className="font-display text-lg text-red-300/95">Danger zone</h3>
-        <p className="mt-2 text-sm text-paid-mist/55">
-          Permanently delete your Paid account and associated data. This cannot be
-          undone.
-        </p>
-        <button
-          type="button"
-          onClick={() => {
-            setDeleteError(null);
-            setDeleteOpen(true);
-          }}
-          className="mt-5 rounded-lg border border-red-500/50 bg-red-500/10 px-4 py-2.5 text-sm font-semibold text-red-200 transition hover:bg-red-500/20"
-        >
-          Delete account
-        </button>
-      </section>
-
-      {deleteOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="delete-dialog-title"
-        >
-          <div className="w-full max-w-md rounded-xl border border-white/10 bg-[#0A0A0F] p-6 shadow-[0_8px_40px_rgba(0,0,0,0.6)]">
-            <h4
-              id="delete-dialog-title"
-              className="font-display text-xl text-paid-mist"
-            >
-              Delete your account?
-            </h4>
-            <p className="mt-3 text-sm leading-relaxed text-paid-mist/60">
-              All invoices, reminders, and integration tokens will be removed. This
-              action is permanent.
-            </p>
-            {deleteError && (
-              <p className="mt-3 text-sm text-red-400">{deleteError}</p>
-            )}
-            <div className="mt-6 flex flex-wrap justify-end gap-3">
-              <button
-                type="button"
-                disabled={deleteBusy}
-                onClick={() => setDeleteOpen(false)}
-                className="rounded-lg border border-white/15 px-4 py-2 text-sm font-medium text-paid-mist/85 transition hover:bg-white/[0.04] disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={deleteBusy}
-                onClick={() => void deleteAccount()}
-                className="rounded-lg border border-red-500/50 bg-red-500/15 px-4 py-2 text-sm font-semibold text-red-200 transition hover:bg-red-500/25 disabled:opacity-50"
-              >
-                {deleteBusy ? "Deleting…" : "Delete account"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
