@@ -4,14 +4,49 @@ import type { AuthIntent } from "@/components/LandingEmailForm";
 import { LandingEmailForm } from "@/components/LandingEmailForm";
 import { GmailSidebarMockup } from "@/components/landing/GmailSidebarMockup";
 import { SectionReveal } from "@/components/landing/SectionReveal";
+import { createClient } from "@/lib/supabase/browser";
+import type { User } from "@supabase/supabase-js";
 import Link from "next/link";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+function navAvatarLetter(user: User): string {
+  const meta = user.user_metadata as { full_name?: string; name?: string } | undefined;
+  const name = meta?.full_name ?? meta?.name;
+  const trimmed = typeof name === "string" ? name.trim() : "";
+  if (trimmed.length > 0) {
+    return trimmed.charAt(0).toUpperCase();
+  }
+  const email = user.email ?? "?";
+  return email.charAt(0).toUpperCase();
+}
 
 export function HomeLanding() {
   const emailSignupRef = useRef<HTMLElement>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalIntent, setModalIntent] = useState<AuthIntent>("signup");
   const [inlineIntent, setInlineIntent] = useState<AuthIntent>("signup");
+  const [user, setUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    const supabase = createClient();
+
+    void supabase.auth.getUser().then(({ data: { user: u } }) => {
+      setUser(u);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      setUser(session?.user ?? null);
+      if (event === "SIGNED_IN" && session?.user) {
+        setModalOpen(false);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
 
   const openModal = useCallback((intent: AuthIntent) => {
     setModalIntent(intent);
@@ -89,26 +124,43 @@ export function HomeLanding() {
       )}
 
       <nav className="border-b border-white/[0.08]">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-6 py-5 sm:gap-4">
           <span className="font-display text-2xl tracking-tight text-paid-mist">
             Paid
           </span>
-          <div className="flex items-center gap-4 sm:gap-6">
-            <button
-              type="button"
-              onClick={() => goToAuth("signup")}
-              className="text-sm font-medium text-paid-mist/80 transition hover:text-[#00E5A0]"
-            >
-              Get started
-            </button>
-            <button
-              type="button"
-              onClick={() => goToAuth("signin")}
-              className="text-sm font-medium text-paid-mist/80 transition hover:text-[#00E5A0]"
-            >
-              Sign in
-            </button>
-          </div>
+          {user ? (
+            <div className="flex min-w-0 flex-1 items-center justify-end gap-2 sm:flex-none sm:gap-3">
+              <span
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#00E5A0]/20 font-mono text-sm text-[#00E5A0]"
+                aria-hidden
+              >
+                {navAvatarLetter(user)}
+              </span>
+              <Link
+                href="/dashboard"
+                className="text-sm font-medium text-paid-mist/80 transition hover:text-[#00E5A0]"
+              >
+                Dashboard
+              </Link>
+            </div>
+          ) : (
+            <div className="flex flex-1 flex-wrap items-center justify-end gap-3 sm:flex-none sm:gap-6">
+              <button
+                type="button"
+                onClick={() => goToAuth("signup")}
+                className="text-sm font-medium text-paid-mist/80 transition hover:text-[#00E5A0]"
+              >
+                Get started
+              </button>
+              <button
+                type="button"
+                onClick={() => goToAuth("signin")}
+                className="text-sm font-medium text-paid-mist/80 transition hover:text-[#00E5A0]"
+              >
+                Sign in
+              </button>
+            </div>
+          )}
         </div>
       </nav>
 
