@@ -15,20 +15,29 @@ export default async function OnboardingPage({
     redirect("/");
   }
 
+  const { data: profile } = await supabase
+    .from("users")
+    .select("onboarding_completed")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (profile?.onboarding_completed === true) {
+    redirect("/dashboard");
+  }
+
   const params = await searchParams;
 
   return (
-    <main className="mx-auto min-h-screen max-w-2xl px-6 py-16">
-      <div className="mb-10 flex items-center gap-2">
-        <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-paid-brand text-sm font-bold text-white">
-          P
-        </span>
-        <span className="text-lg font-semibold">Paid setup</span>
+    <main className="min-h-screen bg-paid-ink px-6 py-16 text-paid-mist">
+      <div className="mx-auto max-w-2xl">
+        <div className="mb-10">
+          <span className="font-display text-2xl tracking-tight">Paid</span>
+          <p className="mt-2 font-mono text-[11px] uppercase tracking-[0.2em] text-white/40">
+            Setup
+          </p>
+        </div>
+        <OnboardingClient initialStep={params.step} email={user.email ?? ""} />
       </div>
-      <OnboardingClient
-        initialStep={params.step}
-        email={user.email ?? ""}
-      />
     </main>
   );
 }

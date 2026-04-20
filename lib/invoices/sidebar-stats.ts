@@ -14,6 +14,19 @@ export type CohortBuckets = {
   d90: { count: number; total: number };
 };
 
+export type CohortKey = "d90" | "d60" | "d30" | "current";
+
+/** Single-invoice cohort for dashboard grouping (matches computeCohorts). */
+export function cohortForInvoice(row: {
+  days_overdue: number;
+  status: InvoiceStatus | string;
+}): CohortKey {
+  if (row.days_overdue >= 90 || row.status === "overdue_90") return "d90";
+  if (row.days_overdue >= 60 || row.status === "overdue_60") return "d60";
+  if (row.days_overdue >= 30 || row.status === "overdue_30") return "d30";
+  return "current";
+}
+
 export type SidebarHeader = {
   totalOutstanding: number;
   overdueClientCount: number;

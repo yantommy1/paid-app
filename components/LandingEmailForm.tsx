@@ -1,16 +1,26 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/browser";
-import { useState } from "react";
+import { useId, useState } from "react";
 
 type Variant = "light" | "dark";
+export type AuthIntent = "signup" | "signin";
 
-export function LandingEmailForm({ variant = "light" }: { variant?: Variant }) {
+type Props = {
+  variant?: Variant;
+  intent?: AuthIntent;
+};
+
+export function LandingEmailForm({
+  variant = "light",
+  intent = "signup",
+}: Props) {
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "sent" | "error">(
     "idle"
   );
   const [message, setMessage] = useState("");
+  const fieldId = useId();
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -22,7 +32,7 @@ export function LandingEmailForm({ variant = "light" }: { variant?: Variant }) {
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: `${origin}/auth/callback?next=/onboarding`,
+        emailRedirectTo: `${origin}/auth/callback`,
       },
     });
     if (error) {
@@ -31,7 +41,11 @@ export function LandingEmailForm({ variant = "light" }: { variant?: Variant }) {
       return;
     }
     setStatus("sent");
-    setMessage("Check your inbox for the magic link.");
+    setMessage(
+      intent === "signup"
+        ? "Check your inbox — we sent a link to get you started."
+        : "Check your inbox — we sent your sign-in link."
+    );
   }
 
   const isDark = variant === "dark";
@@ -50,14 +64,21 @@ export function LandingEmailForm({ variant = "light" }: { variant?: Variant }) {
       : "text-sm text-[#00E5A0]/90"
     : `text-sm ${status === "error" ? "text-red-600" : "text-slate-600"}`;
 
+  const submitLabel =
+    status === "loading"
+      ? "Sending…"
+      : intent === "signup"
+        ? "Email me a magic link"
+        : "Email me a sign-in link";
+
   return (
     <form onSubmit={onSubmit} className="space-y-4">
       <div>
-        <label htmlFor="email" className={labelClass}>
+        <label htmlFor={fieldId} className={labelClass}>
           Work email
         </label>
         <input
-          id="email"
+          id={fieldId}
           type="email"
           required
           value={email}
@@ -68,7 +89,7 @@ export function LandingEmailForm({ variant = "light" }: { variant?: Variant }) {
         />
       </div>
       <button type="submit" disabled={status === "loading"} className={buttonClass}>
-        {status === "loading" ? "Sending link…" : "Continue with email"}
+        {submitLabel}
       </button>
       {message && <p className={messageClass}>{message}</p>}
     </form>

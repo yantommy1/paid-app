@@ -2,7 +2,6 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { OverdueInvoicesPanel } from "@/components/OverdueInvoicesPanel";
-import { SyncInvoicesSection } from "@/components/SyncInvoicesSection";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -13,30 +12,46 @@ export default async function DashboardPage() {
     redirect("/");
   }
 
+  const { data: profile } = await supabase
+    .from("users")
+    .select("onboarding_completed")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (profile && profile.onboarding_completed === false) {
+    redirect("/onboarding");
+  }
+
   return (
-    <main className="mx-auto min-h-screen max-w-2xl px-6 py-16">
-      <div className="mb-10 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-paid-brand text-sm font-bold text-white">
-            P
-          </span>
-          <span className="text-lg font-semibold">Dashboard</span>
+    <main className="min-h-screen bg-paid-ink px-6 py-12 text-paid-mist">
+      <div className="mx-auto max-w-5xl">
+        <header className="mb-10 flex flex-wrap items-center justify-between gap-4 border-b border-white/[0.08] pb-8">
+          <div>
+            <span className="font-display text-2xl tracking-tight">Paid</span>
+            <p className="mt-1 text-sm text-paid-mist/50">
+              Signed in as {user.email ?? ""}
+            </p>
+          </div>
+          <Link
+            href="/onboarding"
+            className="text-sm font-medium text-paid-mist/75 transition hover:text-[#00E5A0]"
+          >
+            Setup &amp; integrations
+          </Link>
+        </header>
+
+        <div>
+          <h1 className="font-display text-3xl tracking-tight md:text-4xl">
+            Receivables
+          </h1>
+          <p className="mt-2 max-w-xl text-sm leading-relaxed text-paid-mist/60">
+            Open balances from QuickBooks, grouped by how late they are. Draft a
+            reminder when you&apos;re ready.
+          </p>
         </div>
-        <Link
-          href="/onboarding"
-          className="text-sm font-medium text-paid-brand hover:underline"
-        >
-          Setup &amp; integrations
-        </Link>
+
+        <OverdueInvoicesPanel />
       </div>
-
-      <p className="mb-8 text-sm text-slate-500">
-        Signed in as {user.email ?? ""}
-      </p>
-
-      <SyncInvoicesSection />
-
-      <OverdueInvoicesPanel />
     </main>
   );
 }
