@@ -40,6 +40,10 @@ export async function GET(request: NextRequest) {
           .update({ quickbooks_token: qb as unknown as Record<string, unknown> })
           .eq("id", uid);
         await syncInvoicesForUser(admin, uid, qb);
+        await admin
+          .from("users")
+          .update({ quickbooks_last_synced_at: new Date().toISOString() })
+          .eq("id", uid);
       }
 
       const { data: settings } = await admin

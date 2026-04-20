@@ -43,10 +43,16 @@ export async function POST(request: NextRequest) {
       .eq("id", user.id);
 
     const result = await syncInvoicesForUser(admin, user.id, token);
+    const syncedAt = new Date().toISOString();
+    await admin
+      .from("users")
+      .update({ quickbooks_last_synced_at: syncedAt })
+      .eq("id", user.id);
     return NextResponse.json({
       ok: true,
       upserted: result.upserted,
       overdueCount: result.overdueCount,
+      lastSyncedAt: syncedAt,
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Sync failed";
