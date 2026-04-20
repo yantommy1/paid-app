@@ -29,10 +29,11 @@ export function SyncInvoicesSection({ autoSyncOnMount = false }: Props) {
       const res = await fetch("/api/invoices/sync", { method: "POST" });
       const j = (await res.json()) as SyncJson;
       if (!res.ok) {
+        const raw = typeof j.error === "string" ? j.error : "";
         const msg =
-          typeof j.error === "string"
-            ? j.error
-            : "Sync failed — check QuickBooks connection.";
+          raw && !/\/api\/|anthropic|\.env/i.test(raw)
+            ? raw
+            : "Sync failed. Check your QuickBooks connection and try again.";
         setError(msg);
         setUpserted(null);
         setOverdueCount(null);

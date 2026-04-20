@@ -54,7 +54,8 @@ export function LegalPageShell({ title, lastUpdated, children }: Props) {
       <footer className="border-t border-white/[0.08]">
         <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-10 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-paid-mist/45">
-            © {new Date().getFullYear()} Paid. Professional services invoice follow-up.
+            {"\u00A9 "}
+            {new Date().getFullYear()} Paid. Professional services invoice follow-up.
           </p>
           <div className="flex gap-6 text-sm">
             <Link

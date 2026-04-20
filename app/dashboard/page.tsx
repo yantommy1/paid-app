@@ -1,7 +1,7 @@
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { redirect } from "next/navigation";
+import { DashboardHeaderActions } from "@/components/DashboardHeaderActions";
 import { OverdueInvoicesPanel } from "@/components/OverdueInvoicesPanel";
+import { redirect } from "next/navigation";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -32,12 +32,7 @@ export default async function DashboardPage() {
               Signed in as {user.email ?? ""}
             </p>
           </div>
-          <Link
-            href="/onboarding"
-            className="text-sm font-medium text-paid-mist/75 transition hover:text-[#00E5A0]"
-          >
-            Setup &amp; integrations
-          </Link>
+          <DashboardHeaderActions />
         </header>
 
         <div>

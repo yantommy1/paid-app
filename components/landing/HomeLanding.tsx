@@ -62,8 +62,8 @@ export function HomeLanding() {
             </h2>
             <p className="mt-2 text-sm leading-relaxed text-paid-mist/60">
               {modalIntent === "signup"
-                ? "Use a magic link or password — your choice in the form below."
-                : "Magic link or password — pick what works best for you."}
+                ? "Use a magic link or password \u2014 your choice in the form below."
+                : "Magic link or password \u2014 pick what works best for you."}
             </p>
             <div className="mt-6">
               <LandingEmailForm
@@ -112,7 +112,7 @@ export function HomeLanding() {
                 </h1>
                 <p className="mt-6 max-w-xl text-lg leading-relaxed text-paid-mist/72">
                   Paid connects QuickBooks and Gmail, then sends AI-drafted payment
-                  reminders in your voice — automatically.
+                  reminders in your voice \u2014 automatically.
                 </p>
                 <div className="mt-10 flex flex-wrap items-center gap-4">
                   <button
@@ -244,12 +244,12 @@ export function HomeLanding() {
               <div className="grid gap-14 lg:grid-cols-2 lg:gap-20">
                 <div>
                   <h2 className="font-display text-3xl leading-[1.12] tracking-tight text-paid-mist md:text-4xl lg:text-[2.65rem]">
-                    Built for firms that bill on trust — and need cash in the door.
+                    Built for firms that bill on trust \u2014 and need cash in the door.
                   </h2>
                 </div>
                 <ul className="divide-y divide-white/[0.08] border-t border-white/[0.08]">
                   {[
-                    "Sends from your real Gmail address — not a noreply",
+                    "Sends from your real Gmail address \u2014 not a noreply",
                     "Tone calibrated to 30 / 60 / 90 day buckets",
                     "Surfaces overdue invoices when you open a client email",
                     "One-tap send from the Gmail sidebar",
@@ -356,8 +356,8 @@ export function HomeLanding() {
                 </h3>
                 <p className="mt-2 text-sm leading-relaxed text-paid-mist/60">
                   {inlineIntent === "signup"
-                    ? "Enter your work email — we’ll send a link to get you started in one click."
-                    : "Enter the email you used before — we’ll send a link to open Paid."}
+                    ? "Enter your work email \u2014 we will send a link to get you started in one click."
+                    : "Enter the email you used before \u2014 we will send a link to open Paid."}
                 </p>
                 <div className="mt-8">
                   <LandingEmailForm
@@ -380,7 +380,8 @@ export function HomeLanding() {
               </span>
             </div>
             <p className="text-sm text-paid-mist/40">
-              © {new Date().getFullYear()} Paid. All rights reserved.
+              {"\u00A9 "}
+              {new Date().getFullYear()} Paid. All rights reserved.
             </p>
           </div>
         </footer>

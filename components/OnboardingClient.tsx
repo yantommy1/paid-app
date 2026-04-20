@@ -1,12 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/browser";
-
-const MARKETPLACE_URL =
-  "https://workspace.google.com/marketplace/app/your_paid_add_on_id";
 
 function ConnectedPill() {
   return (
@@ -58,6 +54,8 @@ export function OnboardingClient({
       : initialStep === "gmail-done"
         ? 3
         : 1;
+
+  const canFinishSetup = quickbooksConnected && gmailConnected;
 
   async function signOut() {
     const supabase = createClient();
@@ -159,18 +157,19 @@ export function OnboardingClient({
           <h2 className="mt-2 font-display text-xl text-paid-mist">
             Install the Gmail Add-On
           </h2>
-          <p className="mt-2 text-sm leading-relaxed text-paid-mist/65">
-            Install from Google Workspace Marketplace, then generate a connection
-            key and paste it into the add-on settings in Gmail.
+          <p className="mt-3 rounded-md border border-[#00E5A0]/25 bg-[#00E5A0]/5 px-4 py-3 text-sm leading-relaxed text-paid-mist/85">
+            <span className="font-semibold text-[#00E5A0]">
+              {"Coming soon \u2014 install instructions below"}
+            </span>
           </p>
-          <Link
-            href={MARKETPLACE_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-5 inline-block rounded-lg border border-white/20 px-4 py-2.5 text-sm font-semibold text-paid-mist transition hover:border-[#00E5A0]/45 hover:text-[#00E5A0]"
-          >
-            Open Workspace Marketplace
-          </Link>
+          <p className="mt-4 text-sm leading-relaxed text-paid-mist/70">
+            After generating your connection key below, open Gmail, click the
+            Paid icon in the right sidebar, and paste your API base URL (
+            <span className="font-mono text-[13px] text-paid-mist/90">
+              https://paid-app.com
+            </span>
+            ) and connection key into the settings form.
+          </p>
           <p className="mt-6 text-sm text-paid-mist/60">
             Generate a connection key for the add-on (you can rotate it anytime):
           </p>
@@ -198,21 +197,28 @@ export function OnboardingClient({
           </button>
 
           <div className="mt-10 border-t border-white/10 pt-8">
-            <p className="text-sm text-paid-mist/70">
-              When QuickBooks, Gmail, and the add-on are set up, finish setup to
-              open your dashboard.
-            </p>
-            <button
-              type="button"
-              disabled={completing}
-              onClick={() => void completeOnboarding()}
-              className="mt-4 rounded-lg border border-[#00E5A0]/50 bg-[#00E5A0]/10 px-5 py-2.5 text-sm font-semibold text-[#00E5A0] transition hover:bg-[#00E5A0]/15 disabled:opacity-50"
-            >
-              {completing ? "Saving…" : "Finish setup"}
-            </button>
-            {completeError && (
-              <p className="mt-2 text-sm text-red-400" role="alert">
-                {completeError}
+            {canFinishSetup ? (
+              <>
+                <p className="text-sm text-paid-mist/70">
+                  When you are ready, finish setup to open your dashboard.
+                </p>
+                <button
+                  type="button"
+                  disabled={completing}
+                  onClick={() => void completeOnboarding()}
+                  className="mt-4 rounded-lg border border-[#00E5A0]/50 bg-[#00E5A0]/10 px-5 py-2.5 text-sm font-semibold text-[#00E5A0] transition hover:bg-[#00E5A0]/15 disabled:opacity-50"
+                >
+                  {completing ? "Saving…" : "Finish setup"}
+                </button>
+                {completeError && (
+                  <p className="mt-2 text-sm text-red-400" role="alert">
+                    {completeError}
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="text-sm text-paid-mist/65" role="status">
+                Connect QuickBooks and Gmail above to continue.
               </p>
             )}
           </div>

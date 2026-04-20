@@ -21,6 +21,15 @@ function mapAuthError(err: AuthError | null): string {
   }
   const m = err.message.trim();
   const lower = m.toLowerCase();
+  // Never surface unrelated UI copy, API paths, or onboarding strings as auth errors.
+  if (
+    (lower.includes("install") && lower.includes("gmail")) ||
+    lower.includes("gmail add-on") ||
+    /\/api\//.test(m) ||
+    /anthropic|api_key|\.env/i.test(m)
+  ) {
+    return "We could not send the link. Please try again in a moment, or use Password to sign in.";
+  }
   if (lower.includes("invalid login") || lower.includes("invalid credentials")) {
     return "Invalid email or password.";
   }
@@ -31,7 +40,7 @@ function mapAuthError(err: AuthError | null): string {
     return "This email already has an account. Sign in instead.";
   }
   if (lower.includes("signups not allowed") || lower.includes("user not found")) {
-    return "No account found for this email. Try “New to Paid” or use a magic link.";
+    return "No account found for this email. Use the New to Paid tab, or try a magic link.";
   }
   if (m.length > 240) {
     return "Could not complete the request. Please try again.";
@@ -100,7 +109,7 @@ export function LandingEmailForm({
           }
           if (data.session) {
             setStatus("sent");
-            setMessage("You’re signed in.");
+            setMessage("You are signed in.");
             await redirectAfterSession(router);
             return;
           }
@@ -145,8 +154,8 @@ export function LandingEmailForm({
     setStatus("sent");
     setMessage(
       intent === "signup"
-        ? "Check your inbox — we sent a link to get you started."
-        : "Check your inbox — we sent you a sign-in link."
+        ? "Check your inbox \u2014 we sent a link to get you started."
+        : "Check your inbox \u2014 we sent you a sign-in link."
     );
   }
 
@@ -221,7 +230,7 @@ export function LandingEmailForm({
 
       <p className={`text-xs ${isDark ? "text-paid-mist/50" : "text-slate-500"}`}>
         {authMode === "magic"
-          ? "We’ll email you a one-time link — no password needed."
+          ? "We will email you a one-time link \u2014 no password needed."
           : intent === "signup"
             ? "Choose a password for your account."
             : "Sign in with the password you created."}

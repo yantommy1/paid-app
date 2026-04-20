@@ -25,6 +25,17 @@ type DraftState =
   | { status: "ok"; subject: string; body: string }
   | { status: "error"; message: string };
 
+/** Avoid showing API paths, env keys, or stack details to end users. */
+function userFacingError(raw: string | undefined, fallback: string): string {
+  if (!raw || typeof raw !== "string") return fallback;
+  const t = raw.trim();
+  if (/anthropic|\/api\/|\.env|localhost|stack trace|internal server/i.test(t)) {
+    return fallback;
+  }
+  if (t.length > 280) return fallback;
+  return t;
+}
+
 function reminderAlreadySent(inv: Invoice): boolean {
   return inv.status === "reminder_sent" || Boolean(inv.reminder_sent_at);
 }
@@ -101,7 +112,12 @@ export function OverdueInvoicesPanel() {
       const res = await fetch("/api/invoices");
       const j = (await res.json()) as { invoices?: Invoice[]; error?: string };
       if (!res.ok) {
-        setListError(j.error ?? "Could not load invoices.");
+        setListError(
+          userFacingError(
+            typeof j.error === "string" ? j.error : undefined,
+            "Could not load invoices. Try again."
+          )
+        );
         setInvoices([]);
         return;
       }
@@ -123,9 +139,10 @@ export function OverdueInvoicesPanel() {
       if (!res.ok) {
         setSyncState("error");
         setSyncError(
-          typeof j.error === "string"
-            ? j.error
-            : "Sync failed. Check your QuickBooks connection."
+          userFacingError(
+            typeof j.error === "string" ? j.error : undefined,
+            "Sync failed. Check your QuickBooks connection and try again."
+          )
         );
         return;
       }
@@ -160,7 +177,10 @@ export function OverdueInvoicesPanel() {
           ...d,
           [invoiceId]: {
             status: "error",
-            message: typeof j.error === "string" ? j.error : "Could not draft reminder.",
+            message: userFacingError(
+              typeof j.error === "string" ? j.error : undefined,
+              "Could not draft reminder. Try again in a moment."
+            ),
           },
         }));
         return;
@@ -216,10 +236,10 @@ export function OverdueInvoicesPanel() {
           ...d,
           [invoiceId]: {
             status: "error",
-            message:
-              typeof j.error === "string"
-                ? j.error
-                : "Send failed. Check your Gmail connection.",
+            message: userFacingError(
+              typeof j.error === "string" ? j.error : undefined,
+              "Could not send. Check your Gmail connection and try again."
+            ),
           },
         }));
         return;
