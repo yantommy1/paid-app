@@ -41,9 +41,9 @@ export function HomeLanding() {
 
   return (
     <div className="min-h-screen bg-white text-[#0D0D0D]">
-      <nav className="border-b border-[#E5E5E5] bg-white">
+      <nav className="sticky top-0 z-30 border-b border-[#E5E5E5] bg-white/95 backdrop-blur-sm">
         <div className="mx-auto flex w-full max-w-[1200px] items-center justify-between px-6 py-5">
-          <span className="font-display text-3xl text-[#0D0D0D]">Paid</span>
+          <span className="font-display text-4xl font-semibold text-[#0D0D0D]">Paid</span>
           {user ? (
             <div className="flex items-center gap-3">
               <span className="flex h-8 w-8 items-center justify-center rounded-full border border-[#E5E5E5] text-sm text-[#0D0D0D]">
@@ -63,12 +63,16 @@ export function HomeLanding() {
       </nav>
 
       <main>
-        <section className="py-24">
-          <div className="mx-auto grid w-full max-w-[1200px] gap-14 px-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] lg:items-center">
+        <section className="relative overflow-hidden py-24">
+          <div
+            aria-hidden
+            className="pointer-events-none absolute -right-40 top-8 h-[540px] w-[540px] rounded-full border-[72px] border-[#1B4332]/[0.04]"
+          />
+          <div className="relative mx-auto grid w-full max-w-[1200px] gap-14 px-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] lg:items-center">
             <SectionReveal>
               <div>
-                <div className="mb-8 h-[2px] w-12 bg-[#1B4332]" aria-hidden />
-                <h1 className="font-display text-[3rem] leading-[0.95] tracking-tight text-[#0D0D0D] sm:text-[4rem] lg:text-[72px]">
+                <p className="mb-6 text-sm uppercase tracking-[0.22em] text-[#1B4332]">AI Receivables</p>
+                <h1 className="font-display text-[3.2rem] leading-[0.92] tracking-tight text-[#0D0D0D] sm:text-[4.4rem] lg:text-7xl">
                   You did the work.
                   <br />
                   We&apos;ll get you paid.
@@ -80,7 +84,7 @@ export function HomeLanding() {
                   <button
                     type="button"
                     onClick={() => goToAuth("signup")}
-                    className="bg-black px-6 py-3 text-sm font-medium text-white"
+                    className="bg-[#1B4332] px-6 py-3 text-sm font-medium text-white"
                   >
                     Get started
                   </button>
@@ -99,6 +103,7 @@ export function HomeLanding() {
         <section className="border-t border-[#E5E5E5] py-24">
           <div className="mx-auto w-full max-w-[1200px] px-6">
             <SectionReveal>
+              <p className="text-sm uppercase tracking-[0.22em] text-[#1B4332]">The AR Reality</p>
               <h2 className="font-display text-4xl tracking-tight text-[#0D0D0D]">
                 Getting paid shouldn&apos;t be a second job.
               </h2>
@@ -108,8 +113,8 @@ export function HomeLanding() {
                   { stat: "47", body: "days average payment delay in professional services" },
                   { stat: "23%", body: "of invoices are never collected after 90 days" },
                 ].map((card) => (
-                  <article key={card.stat} className="border border-[#E5E5E5] bg-white px-6 py-7">
-                    <div className="mb-5 h-8 border-l-2 border-[#1B4332]" aria-hidden />
+                  <article key={card.stat} className="border border-[#E5E5E5] bg-[#F0F7F4] px-6 py-7">
+                    <div className="mb-5 h-8 border-l-4 border-[#1B4332]" aria-hidden />
                     <p className="font-display text-5xl leading-none text-[#0D0D0D]">{card.stat}</p>
                     <p className="mt-4 text-sm leading-relaxed text-[#6B6B6B]">{card.body}</p>
                   </article>
@@ -119,23 +124,23 @@ export function HomeLanding() {
           </div>
         </section>
 
-        <section id="how-it-works" className="bg-[#F7F7F5] py-24">
+        <section id="how-it-works" className="bg-[#1B4332] py-24 text-white">
           <div className="mx-auto w-full max-w-[1200px] px-6">
             <SectionReveal>
-              <p className="text-xs uppercase tracking-[0.18em] text-[#6B6B6B]">How it works</p>
-              <h2 className="mt-3 font-display text-4xl text-[#0D0D0D]">Three steps. One outcome.</h2>
+              <p className="text-sm uppercase tracking-[0.22em] text-[#C8D9D1]">How it works</p>
+              <h2 className="mt-3 font-display text-5xl text-white">Three steps. One outcome.</h2>
               <div className="mt-14 grid gap-8 md:grid-cols-3">
                 {[
                   ["1", "Connect QuickBooks", "Sync open invoices and customer details."],
                   ["2", "Generate reminders", "Create polished follow-up drafts for each client."],
                   ["3", "Send from Gmail", "Deliver reminders from the inbox your clients trust."],
                 ].map(([n, t, b]) => (
-                  <article key={t} className="space-y-3">
-                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-black text-xs font-medium text-white">
+                  <article key={t} className="space-y-3 rounded-lg border border-white/15 bg-white/5 p-5">
+                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white text-xs font-medium text-[#1B4332]">
                       {n}
                     </span>
-                    <h3 className="text-lg font-medium text-[#0D0D0D]">{t}</h3>
-                    <p className="text-sm leading-relaxed text-[#6B6B6B]">{b}</p>
+                    <h3 className="text-lg font-medium text-white">{t}</h3>
+                    <p className="text-sm leading-relaxed text-[#D4E2DC]">{b}</p>
                   </article>
                 ))}
               </div>
@@ -151,6 +156,7 @@ export function HomeLanding() {
               </h2>
             </SectionReveal>
             <SectionReveal>
+              <p className="text-sm uppercase tracking-[0.22em] text-[#1B4332]">Features</p>
               <div className="border-t border-[#E5E5E5]">
                 {[
                   "Reminders sent from your real email address — not a noreply",
@@ -158,8 +164,11 @@ export function HomeLanding() {
                   "Surfaces overdue invoices when you open a client email",
                   "One click to send from your inbox",
                   "Stronger follow-up for balances past 60 days",
-                ].map((line) => (
-                  <p key={line} className="border-b border-[#E5E5E5] py-5 text-sm text-[#0D0D0D] transition hover:text-[#1B4332]">
+                ].map((line, idx) => (
+                  <p key={line} className="relative overflow-hidden border-b border-[#E5E5E5] py-5 pl-10 text-sm text-[#0D0D0D] transition hover:text-[#1B4332]">
+                    <span className="pointer-events-none absolute left-0 top-1/2 -translate-y-1/2 text-[52px] font-display leading-none text-[#F0F0F0]">
+                      {String(idx + 1).padStart(2, "0")}
+                    </span>
                     {line}
                   </p>
                 ))}
@@ -171,8 +180,8 @@ export function HomeLanding() {
         <section ref={emailSignupRef} id="email-signup" className="bg-[#F7F7F5] py-24">
           <div className="mx-auto w-full max-w-[1200px] px-6">
             <SectionReveal>
-              <p className="text-xs uppercase tracking-[0.18em] text-[#6B6B6B]">Pricing</p>
-              <h2 className="mt-3 font-display text-4xl text-[#0D0D0D]">Simple pricing. No surprises.</h2>
+              <p className="text-sm uppercase tracking-[0.22em] text-[#1B4332]">Pricing</p>
+              <h2 className="mt-3 font-display text-5xl text-[#0D0D0D]">Simple pricing. No surprises.</h2>
               <div className="mt-14 grid gap-6 md:grid-cols-2">
                 <article className="border border-[#E5E5E5] bg-white p-8">
                   <h3 className="font-display text-2xl text-[#0D0D0D]">Starter</h3>
@@ -195,6 +204,9 @@ export function HomeLanding() {
                 </article>
 
                 <article className="border border-[#1B4332] bg-[#1B4332]/[0.05] p-8">
+                  <p className="-mx-8 -mt-8 mb-6 bg-[#1B4332] px-8 py-2 text-center text-xs font-semibold uppercase tracking-[0.2em] text-white">
+                    Most Popular
+                  </p>
                   <h3 className="font-display text-2xl text-[#0D0D0D]">Pro</h3>
                   <p className="mt-3 font-display text-5xl text-[#0D0D0D]">
                     $99<span className="ml-1 text-lg text-[#6B6B6B]">/mo</span>
@@ -208,7 +220,7 @@ export function HomeLanding() {
                   <button
                     type="button"
                     onClick={() => goToAuth("signup")}
-                    className="mt-10 w-full bg-black py-3 text-sm font-medium text-white"
+                    className="mt-10 w-full bg-[#1B4332] py-3 text-sm font-medium text-white"
                   >
                     Get started
                   </button>

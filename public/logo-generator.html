@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Paid — logo export</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@1,600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 2rem 1.5rem 3rem;
+        font-family: system-ui, sans-serif;
+        background: #f2f2f2;
+        color: #333;
+        line-height: 1.5;
+      }
+      .hint {
+        max-width: 48rem;
+        margin: 0 auto 1.5rem;
+        padding: 0.75rem 1rem;
+        background: #fff;
+        border: 1px solid #c8c8c8;
+        border-radius: 6px;
+        font-size: 0.95rem;
+      }
+      .grid {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2rem;
+        max-width: 56rem;
+        margin: 0 auto;
+      }
+      .cell {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      .cell .size-label {
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: #555;
+        font-variant-numeric: tabular-nums;
+      }
+      .box {
+        border: 1px solid #9a9a9a;
+        background: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+      }
+      .box canvas {
+        display: block;
+        vertical-align: top;
+      }
+    </style>
+  </head>
+  <body>
+    <p class="hint">
+      Right-click each logo and Save as PNG to export
+    </p>
+    <div class="grid" id="logos"></div>
+    <script>
+      (function () {
+        const sizes = [
+          { w: 32, h: 32 },
+          { w: 48, h: 48 },
+          { w: 96, h: 96 },
+          { w: 128, h: 128 },
+          { w: 220, h: 140 },
+        ];
+
+        // Design artboard: same layout scaled to each output size (vector draw = crisp)
+        const VB = { w: 220, h: 140 };
+        const TEXT = "#0D0D0D";
+        const STROKE = "#1B4332";
+        const BG = "#ffffff";
+
+        const underlinePath = new Path2D(
+          "M 32 100 C 52 88, 70 108, 88 100 S 120 90, 140 100 S 180 95, 196 100"
+        );
+
+        function drawToCanvas(w, h) {
+          const c = document.createElement("canvas");
+          c.width = w;
+          c.height = h;
+          const ctx = c.getContext("2d", { alpha: false });
+          const sx = w / VB.w;
+          const sy = h / VB.h;
+          ctx.setTransform(sx, 0, 0, sy, 0, 0);
+          ctx.fillStyle = BG;
+          ctx.fillRect(0, 0, VB.w, VB.h);
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillStyle = TEXT;
+          ctx.font = "600 italic 64px 'Playfair Display', Georgia, serif";
+          ctx.fillText("Paid", 110, 78);
+          ctx.strokeStyle = STROKE;
+          ctx.lineWidth = 4.5;
+          ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+          ctx.stroke(underlinePath);
+          return c;
+        }
+
+        const root = document.getElementById("logos");
+
+        function build() {
+          sizes.forEach(function (dim) {
+            const cell = document.createElement("div");
+            cell.className = "cell";
+
+            const lbl = document.createElement("div");
+            lbl.className = "size-label";
+            lbl.textContent = dim.w + "×" + dim.h + " px";
+            cell.appendChild(lbl);
+
+            const box = document.createElement("div");
+            box.className = "box";
+            box.style.width = dim.w + "px";
+            box.style.height = dim.h + "px";
+            const canvas = drawToCanvas(dim.w, dim.h);
+            box.appendChild(canvas);
+            cell.appendChild(box);
+
+            root.appendChild(cell);
+          });
+        }
+
+        if (document.fonts && document.fonts.ready) {
+          document.fonts.ready.then(build).catch(build);
+        } else {
+          setTimeout(build, 0);
+        }
+      })();
+    </script>
+  </body>
+</html>
