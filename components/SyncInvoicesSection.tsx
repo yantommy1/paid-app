@@ -57,9 +57,9 @@ export function SyncInvoicesSection({ autoSyncOnMount = false }: Props) {
   }, [autoSyncOnMount, sync]);
 
   return (
-    <section className="rounded-xl border border-paid-brand/30 bg-paid-brand/5 p-6">
-      <h3 className="text-lg font-semibold text-slate-900">QuickBooks invoice sync</h3>
-      <p className="mt-2 text-sm text-slate-600">
+    <section className="rounded-xl border border-[#E5E5E5] bg-white p-6">
+      <h3 className="text-lg font-semibold text-[#0D0D0D]">QuickBooks invoice sync</h3>
+      <p className="mt-2 text-sm text-[#6B6B6B]">
         Pull unpaid invoices from QuickBooks into Paid. Uses your connected QuickBooks
         account — no need to wait for the daily job.
       </p>
@@ -67,7 +67,7 @@ export function SyncInvoicesSection({ autoSyncOnMount = false }: Props) {
         type="button"
         onClick={() => void sync()}
         disabled={syncing}
-        className="mt-4 rounded-lg bg-paid-brand px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
+        className="mt-4 rounded-lg bg-[#1B4332] px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
       >
         {syncing ? "Syncing…" : "Sync Invoices"}
       </button>
@@ -77,7 +77,7 @@ export function SyncInvoicesSection({ autoSyncOnMount = false }: Props) {
         </p>
       )}
       {upserted !== null && overdueCount !== null && !error && (
-        <p className="mt-3 text-sm text-slate-800">
+        <p className="mt-3 text-sm text-[#0D0D0D]">
           Synced <strong>{upserted}</strong> invoice{upserted === 1 ? "" : "s"}.{" "}
           <strong>{overdueCount}</strong> currently overdue.
         </p>

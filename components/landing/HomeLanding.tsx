@@ -20,6 +20,7 @@ function navAvatarLetter(user: User): string {
 export function HomeLanding() {
   const emailSignupRef = useRef<HTMLElement>(null);
   const [inlineIntent, setInlineIntent] = useState<AuthIntent>("signup");
+  const [signInModalOpen, setSignInModalOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
@@ -56,7 +57,7 @@ export function HomeLanding() {
           ) : (
             <div className="flex items-center gap-6 text-sm text-[#0D0D0D]">
               <button type="button" onClick={() => goToAuth("signup")}>Get started</button>
-              <button type="button" onClick={() => goToAuth("signin")}>Sign in</button>
+              <button type="button" onClick={() => setSignInModalOpen(true)}>Sign in</button>
             </div>
           )}
         </div>
@@ -163,23 +164,23 @@ export function HomeLanding() {
           </div>
         </section>
 
-        <section id="how-it-works" className="bg-[#1B4332] py-24 text-white">
+        <section id="how-it-works" className="border-y border-[#E5E5E5] bg-white py-24 text-[#0D0D0D]">
           <div className="mx-auto w-full max-w-[1200px] px-6">
             <SectionReveal>
-              <p className="text-sm uppercase tracking-[0.22em] text-[#C8D9D1]">How it works</p>
-              <h2 className="mt-3 font-display text-5xl text-white">Three steps. One outcome.</h2>
+              <p className="text-sm uppercase tracking-[0.22em] text-[#1B4332]">How it works</p>
+              <h2 className="mt-3 font-display text-5xl text-[#0D0D0D]">Three steps. One outcome.</h2>
               <div className="mt-14 grid gap-8 md:grid-cols-3">
                 {[
                   ["1", "Connect QuickBooks", "Sync open invoices and customer details."],
                   ["2", "Generate reminders", "Create polished follow-up drafts for each client."],
                   ["3", "Send from Gmail", "Deliver reminders from the inbox your clients trust."],
                 ].map(([n, t, b]) => (
-                  <article key={t} className="space-y-3 rounded-lg border border-white/15 bg-white/5 p-5">
-                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white text-xs font-medium text-[#1B4332]">
+                  <article key={t} className="space-y-3 rounded-lg border border-[#E5E5E5] bg-[#F7F7F5] p-5">
+                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#1B4332] text-xs font-medium text-white">
                       {n}
                     </span>
-                    <h3 className="text-lg font-medium text-white">{t}</h3>
-                    <p className="text-sm leading-relaxed text-[#D4E2DC]">{b}</p>
+                    <h3 className="text-lg font-medium text-[#0D0D0D]">{t}</h3>
+                    <p className="text-sm leading-relaxed text-[#6B6B6B]">{b}</p>
                   </article>
                 ))}
               </div>
@@ -190,11 +191,11 @@ export function HomeLanding() {
                   ["Send", "From Gmail"],
                 ].map(([title, sub], idx) => (
                   <div key={title} className="flex items-center gap-4">
-                    <div className="w-[160px] rounded border border-white/20 bg-white/10 px-4 py-3 text-center">
-                      <p className="text-sm font-semibold text-white">{title}</p>
-                      <p className="mt-1 text-xs text-[#D4E2DC]">{sub}</p>
+                    <div className="w-[160px] rounded border border-[#E5E5E5] bg-[#F7F7F5] px-4 py-3 text-center">
+                      <p className="text-sm font-semibold text-[#0D0D0D]">{title}</p>
+                      <p className="mt-1 text-xs text-[#6B6B6B]">{sub}</p>
                     </div>
-                    {idx < 2 && <span className="text-xl text-white/80">→</span>}
+                    {idx < 2 && <span className="text-xl text-[#6B6B6B]">→</span>}
                   </div>
                 ))}
               </div>
@@ -286,9 +287,9 @@ export function HomeLanding() {
                   </div>
                   <Link
                     href="/pricing"
-                    className="mt-10 flex w-full items-center justify-center border border-black py-3 text-sm font-medium text-black"
+                    className="mt-10 flex w-full items-center justify-center border border-[#1B4332] py-3 text-sm font-medium text-[#1B4332]"
                   >
-                    Get started
+                    Start free trial
                   </Link>
                 </article>
 
@@ -320,14 +321,14 @@ export function HomeLanding() {
                   <button
                     type="button"
                     onClick={() => setInlineIntent("signup")}
-                    className={`px-3 py-2 text-sm ${inlineIntent === "signup" ? "border-b-2 border-black text-black" : "text-[#6B6B6B]"}`}
+                    className={`px-3 py-2 text-sm ${inlineIntent === "signup" ? "border-b-2 border-[#1B4332] text-[#0D0D0D]" : "text-[#6B6B6B]"}`}
                   >
                     New to Paid
                   </button>
                   <button
                     type="button"
                     onClick={() => setInlineIntent("signin")}
-                    className={`px-3 py-2 text-sm ${inlineIntent === "signin" ? "border-b-2 border-black text-black" : "text-[#6B6B6B]"}`}
+                    className={`px-3 py-2 text-sm ${inlineIntent === "signin" ? "border-b-2 border-[#1B4332] text-[#0D0D0D]" : "text-[#6B6B6B]"}`}
                   >
                     Sign in
                   </button>
@@ -359,6 +360,24 @@ export function HomeLanding() {
           </div>
         </footer>
       </main>
+
+      {signInModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0D0D0D]/30 px-4">
+          <div className="w-full max-w-md border border-[#E5E5E5] bg-white p-6">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="font-display text-2xl text-[#0D0D0D]">Sign in to Paid</h2>
+              <button
+                type="button"
+                onClick={() => setSignInModalOpen(false)}
+                className="text-sm text-[#6B6B6B]"
+              >
+                Close
+              </button>
+            </div>
+            <LandingEmailForm intent="signin" variant="light" />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

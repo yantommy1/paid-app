@@ -107,7 +107,7 @@ export function DashboardStatus() {
           </p>
 
           <div className="mt-8 flex justify-center">
-            <a href="https://mail.google.com" target="_blank" rel="noopener noreferrer" className="bg-black px-6 py-3 text-sm font-medium text-white">
+            <a href="https://mail.google.com" target="_blank" rel="noopener noreferrer" className="bg-[#1B4332] px-6 py-3 text-sm font-medium text-white">
               Open Gmail
             </a>
           </div>
@@ -133,7 +133,7 @@ export function DashboardStatus() {
             )}
 
             <div className="mt-6 text-center">
-              <button type="button" disabled={syncing || loading} onClick={() => void syncNow()} className="text-sm text-[#1B4332] underline disabled:opacity-50">
+              <button type="button" disabled={syncing || loading} onClick={() => void syncNow()} className="border border-[#1B4332] px-4 py-2 text-sm text-[#1B4332] disabled:opacity-50">
                 {syncing ? "Syncing..." : "Sync now"}
               </button>
             </div>

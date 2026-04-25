@@ -1,10 +1,18 @@
 import { PricingPlans } from "@/components/pricing/PricingPlans";
 import { createClient } from "@/lib/supabase/server";
+import { postLoginPathForState } from "@/lib/auth/post-login-path";
+import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
 const APP_BASE =
   (process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || "https://paid-app.com") as string;
+
+export const metadata: Metadata = {
+  title: "Pricing — Paid",
+  description:
+    "Start a 30-day Paid trial and automate overdue invoice reminders sent from your Gmail.",
+};
 
 export default async function PricingPage({
   searchParams,
@@ -18,6 +26,20 @@ export default async function PricingPage({
 
   if (!user) {
     redirect(`${APP_BASE}/#email-signup`);
+  }
+
+  const { data: profile } = await supabase
+    .from("users")
+    .select("onboarding_completed, subscription_status")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  const destination = postLoginPathForState({
+    onboardingCompleted: profile?.onboarding_completed === true,
+    subscriptionStatus: (profile?.subscription_status as string | null) ?? null,
+  });
+  if (destination !== "/pricing") {
+    redirect(destination);
   }
 
   const sp = await searchParams;

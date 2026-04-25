@@ -2,7 +2,13 @@ import { SettingsClient } from "@/components/SettingsClient";
 import { planNameFromStripePriceId } from "@/lib/billing/plan-name";
 import { createClient } from "@/lib/supabase/server";
 import type { QuickBooksToken } from "@/lib/types";
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+
+export const metadata: Metadata = {
+  title: "Settings — Paid",
+  description: "Manage billing, integrations, API keys, and account preferences in Paid.",
+};
 
 export default async function SettingsPage() {
   const supabase = await createClient();

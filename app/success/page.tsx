@@ -1,7 +1,12 @@
-"use client";
-
 import Link from "next/link";
-import { useMemo } from "react";
+import { createClient } from "@/lib/supabase/server";
+import type { Metadata } from "next";
+import { redirect } from "next/navigation";
+
+export const metadata: Metadata = {
+  title: "Trial Started — Paid",
+  description: "Your Paid free trial is active. Open Gmail or continue to your dashboard.",
+};
 
 function CheckIcon() {
   return (
@@ -24,16 +29,28 @@ function CheckIcon() {
   );
 }
 
-export default function SubscriptionSuccessPage() {
-  const trialEndsDisplay = useMemo(
-    () =>
-      new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString("en-US", {
-        month: "long",
-        day: "numeric",
-        year: "numeric",
-      }),
-    []
-  );
+export default async function SubscriptionSuccessPage() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    redirect("/");
+  }
+
+  const { data: profile } = await supabase
+    .from("users")
+    .select("trial_ends_at")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  const trialEndsDisplay = new Date(
+    (profile?.trial_ends_at as string | null) ?? Date.now() + 30 * 24 * 60 * 60 * 1000
+  ).toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
 
   return (
     <main className="min-h-screen bg-white text-[#0D0D0D]">
@@ -54,7 +71,7 @@ export default function SubscriptionSuccessPage() {
           <h1 className="mt-8 font-display text-4xl text-[#0D0D0D] md:text-5xl">
             You&apos;re all set.
           </h1>
-          <p className="mt-5 text-lg leading-relaxed text-[#6B6B6B]" suppressHydrationWarning>
+          <p className="mt-5 text-lg leading-relaxed text-[#6B6B6B]">
             Your 30-day free trial has started. You won&apos;t be billed until {trialEndsDisplay}.
             We&apos;ll send a reminder before your trial ends.
           </p>

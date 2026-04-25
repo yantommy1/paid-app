@@ -1,4 +1,4 @@
-import { serverError, unauthorized } from "@/lib/api/errors";
+import { apiError, serverError, unauthorized } from "@/lib/api/errors";
 import { requireUserFromRequest } from "@/lib/api/require-user-request";
 import { getAppUrl } from "@/lib/env/app-url";
 import { isSafeInternalPath } from "@/lib/http/safe-internal-path";
@@ -30,6 +30,9 @@ export async function GET(request: NextRequest) {
   }
 
   if (!code) {
+    if (!process.env.QUICKBOOKS_CLIENT_ID || !process.env.QUICKBOOKS_CLIENT_SECRET) {
+      return apiError("QuickBooks is not configured.", "SERVER_ERROR", 500);
+    }
     const cookieStore = await cookies();
     const st = crypto.randomUUID();
     cookieStore.set("qb_oauth_state", st, {
@@ -88,48 +91,7 @@ export async function GET(request: NextRequest) {
   const responseBodyText = await tokenRes.text();
 
   if (!tokenRes.ok) {
-    let parsed: Record<string, unknown> | null = null;
-    if (responseBodyText) {
-      try {
-        parsed = JSON.parse(responseBodyText) as Record<string, unknown>;
-      } catch {
-        // Intuit sometimes returns non-JSON; keep raw text only
-      }
-    }
-
-    const intuitError =
-      typeof parsed?.error === "string" ? parsed.error : undefined;
-    const intuitDescription =
-      typeof parsed?.error_description === "string"
-        ? parsed.error_description
-        : undefined;
-
-    const diagnostic = {
-      step: "token_exchange",
-      httpStatus: tokenRes.status,
-      httpStatusText: tokenRes.statusText,
-      redirectUriUsed: redirectUri,
-      responseContentType: tokenRes.headers.get("content-type"),
-      rawBodyLength: responseBodyText.length,
-      rawBody: responseBodyText || "(empty)",
-      intuitError,
-      intuitDescription,
-      intuitParsed: parsed,
-    };
-
-    console.error("[QuickBooks OAuth] Token exchange failed", diagnostic);
-
-    return NextResponse.json(
-      {
-        error: "Token exchange failed",
-        code: "SERVER_ERROR",
-        message:
-          (intuitDescription ?? intuitError ?? responseBodyText) ||
-          tokenRes.statusText,
-        ...diagnostic,
-      },
-      { status: 400 }
-    );
+    return apiError("Could not connect to QuickBooks. Please try again.", "SERVER_ERROR", 400);
   }
 
   let tok: {
@@ -145,21 +107,8 @@ export async function GET(request: NextRequest) {
       expires_in: number;
       realmId?: string;
     };
-  } catch (parseErr) {
-    const diagnostic = {
-      step: "parse_token_response",
-      httpStatus: tokenRes.status,
-      rawBodyPreview: responseBodyText.slice(0, 500),
-    };
-    console.error("[QuickBooks OAuth] Success response was not valid JSON", diagnostic, parseErr);
-    return NextResponse.json(
-      {
-        error: "Token response was not valid JSON",
-        code: "SERVER_ERROR",
-        ...diagnostic,
-      },
-      { status: 502 }
-    );
+  } catch {
+    return apiError("QuickBooks returned an invalid response.", "SERVER_ERROR", 502);
   }
 
   const resolvedRealm = realmId ?? tok.realmId ?? "";

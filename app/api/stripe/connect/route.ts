@@ -5,6 +5,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(request: NextRequest) {
+  if (!process.env.STRIPE_SECRET_KEY || !process.env.NEXT_PUBLIC_APP_URL) {
+    return serverError("Stripe Connect is not configured.", 500);
+  }
   const ctx = await requireUserFromRequest(request);
   if (ctx.response) return ctx.response;
 

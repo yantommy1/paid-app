@@ -1,8 +1,14 @@
 import { DashboardPastDueBanner } from "@/components/dashboard/DashboardPastDueBanner";
 import { OverdueInvoicesPanel } from "@/components/OverdueInvoicesPanel";
 import { createClient } from "@/lib/supabase/server";
+import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+
+export const metadata: Metadata = {
+  title: "Dashboard — Paid",
+  description: "Review overdue invoices, draft reminders, and send follow-ups from your Paid dashboard.",
+};
 
 function trialDaysRemaining(trialEndsAt: string): number {
   const end = new Date(trialEndsAt).getTime();

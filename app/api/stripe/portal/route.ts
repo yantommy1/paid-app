@@ -7,6 +7,9 @@ import { NextRequest, NextResponse } from "next/server";
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://paid-app.com";
 
 export async function POST(request: NextRequest) {
+  if (!process.env.STRIPE_SECRET_KEY) {
+    return serverError("Stripe billing is not configured.", 500);
+  }
   const ctx = await requireUserFromRequest(request);
   if (ctx.response) return ctx.response;
 
@@ -18,7 +21,7 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (error || !userRow?.stripe_customer_id) {
-    return serverError("No Stripe customer on file. Subscribe from Pricing first.", 400);
+    return serverError("No billing account found. Start a subscription first.", 400);
   }
 
   try {
@@ -29,7 +32,6 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json({ url: session.url });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Portal session failed";
-    return serverError(message, 500);
+    return serverError("Could not open billing portal. Please try again.", 500);
   }
 }

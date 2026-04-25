@@ -1,4 +1,5 @@
 import { serverError, unauthorized } from "@/lib/api/errors";
+import { postLoginPathForState } from "@/lib/auth/post-login-path";
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 
@@ -21,5 +22,16 @@ export async function POST() {
     return serverError(error.message);
   }
 
-  return NextResponse.json({ ok: true });
+  const { data: profile } = await supabase
+    .from("users")
+    .select("subscription_status")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  const nextPath = postLoginPathForState({
+    onboardingCompleted: true,
+    subscriptionStatus: (profile?.subscription_status as string | null) ?? null,
+  });
+
+  return NextResponse.json({ ok: true, nextPath });
 }

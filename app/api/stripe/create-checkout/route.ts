@@ -10,8 +10,7 @@ const BodySchema = z.object({
   plan: z.enum(["starter", "pro"]),
 });
 
-const APP_BASE =
-  (process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || "https://paid-app.com") as string;
+const APP_BASE = "https://paid-app.com";
 const SUCCESS_URL = `${APP_BASE}/success`;
 const CANCEL_URL = `${APP_BASE}/pricing`;
 
@@ -21,8 +20,11 @@ export async function POST(request: NextRequest) {
 
   const starter = process.env.STRIPE_STARTER_PRICE_ID?.trim();
   const pro = process.env.STRIPE_PRO_PRICE_ID?.trim();
+  if (!process.env.STRIPE_SECRET_KEY) {
+    return serverError("Stripe is not configured.", 500);
+  }
   if (!starter || !pro) {
-    return serverError("Missing STRIPE_STARTER_PRICE_ID or STRIPE_PRO_PRICE_ID", 500);
+    return serverError("Pricing is not configured.", 500);
   }
 
   let json: unknown;
@@ -105,7 +107,10 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ url: session.url });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Checkout failed";
-    return serverError(message, 500);
+    const message = e instanceof Error ? e.message : "";
+    if (message.includes("No such price")) {
+      return serverError("Selected plan is unavailable. Please try again.", 400);
+    }
+    return serverError("Unable to start checkout right now.", 500);
   }
 }

@@ -1,4 +1,4 @@
-import { serverError, unauthorized } from "@/lib/api/errors";
+import { apiError, serverError, unauthorized } from "@/lib/api/errors";
 import { requireUserFromRequest } from "@/lib/api/require-user-request";
 import { getAppUrl } from "@/lib/env/app-url";
 import { isSafeInternalPath } from "@/lib/http/safe-internal-path";
@@ -29,6 +29,9 @@ export async function GET(request: NextRequest) {
   }
 
   if (!code) {
+    if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+      return apiError("Google OAuth is not configured.", "SERVER_ERROR", 500);
+    }
     const cookieStore = await cookies();
     const st = crypto.randomUUID();
     cookieStore.set("gmail_oauth_state", st, {
@@ -83,11 +86,7 @@ export async function GET(request: NextRequest) {
   });
 
   if (!tokenRes.ok) {
-    const t = await tokenRes.text();
-    return NextResponse.json(
-      { error: "Token exchange failed", code: "SERVER_ERROR", detail: t },
-      { status: 400 }
-    );
+    return apiError("Could not connect to Google. Please try again.", "SERVER_ERROR", 400);
   }
 
   const tok = (await tokenRes.json()) as {

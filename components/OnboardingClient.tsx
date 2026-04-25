@@ -69,12 +69,12 @@ export function OnboardingClient({ initialStep, email, quickbooksConnected, gmai
     setCompleteError(null);
     try {
       const res = await fetch("/api/onboarding/complete", { method: "POST" });
-      const j = (await res.json()) as { error?: string };
+      const j = (await res.json()) as { error?: string; nextPath?: string };
       if (!res.ok) {
         setCompleteError(j.error ?? "Could not save progress.");
         return;
       }
-      router.push("/dashboard");
+      router.push(j.nextPath ?? "/pricing");
       router.refresh();
     } catch {
       setCompleteError("Something went wrong. Try again.");
@@ -93,7 +93,7 @@ export function OnboardingClient({ initialStep, email, quickbooksConnected, gmai
           <p className="mt-2 text-xs uppercase tracking-[0.18em] text-[#6B6B6B]">Setup</p>
           <p className="mt-4 text-sm text-[#6B6B6B]">Signed in as {email}</p>
         </div>
-        <button type="button" onClick={() => void signOut()} className="border border-black px-4 py-2 text-sm text-black">Sign out</button>
+        <button type="button" onClick={() => void signOut()} className="border border-[#1B4332] px-4 py-2 text-sm text-[#1B4332]">Sign out</button>
       </header>
 
       <ol className="space-y-6">
@@ -156,7 +156,7 @@ export function OnboardingClient({ initialStep, email, quickbooksConnected, gmai
                   onClick={() => void completeOnboarding()}
                   className="mt-4 border border-[#1B4332] bg-[#1B4332] px-5 py-2.5 text-sm text-white disabled:opacity-50"
                 >
-                  {completing ? "Saving..." : "Go to dashboard"}
+                  {completing ? "Saving..." : "Finish setup"}
                 </button>
                 {completeError && <p className="mt-2 text-sm text-red-600">{completeError}</p>}
               </>

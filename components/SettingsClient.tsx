@@ -215,18 +215,18 @@ export function SettingsClient({
             {maskedKey(apiKey)}
           </div>
           <div className="flex flex-wrap gap-3">
-            <button
+              <button
               type="button"
               onClick={() => setShowKey((v) => !v)}
-              className="border border-black px-3 py-2 text-xs"
+                className="border border-[#1B4332] px-3 py-2 text-xs text-[#1B4332]"
             >
               {showKey ? "Hide key" : "Show key"}
             </button>
-            <button
+              <button
               type="button"
               disabled={!apiKey}
               onClick={() => apiKey && navigator.clipboard.writeText(apiKey)}
-              className="border border-black px-3 py-2 text-xs disabled:opacity-50"
+                className="border border-[#1B4332] px-3 py-2 text-xs text-[#1B4332] disabled:opacity-50"
             >
               Copy key
             </button>
@@ -241,11 +241,11 @@ export function SettingsClient({
           </div>
           <p className="text-xs text-[#6B6B6B]">Generated: {formatTime(apiKeyCreatedAt)}</p>
           <div className="flex items-center gap-3">
-            <button
+              <button
               type="button"
               disabled={healthBusy}
               onClick={() => void testConnection()}
-              className="border border-black px-3 py-2 text-xs"
+                className="border border-[#1B4332] px-3 py-2 text-xs text-[#1B4332]"
             >
               {healthBusy ? "Testing..." : "Test connection"}
             </button>
@@ -261,7 +261,7 @@ export function SettingsClient({
       </section>
 
       <div className="border-t border-[#E5E5E5] pt-10">
-        <button type="button" onClick={() => void signOut()} className="border border-black px-5 py-2.5 text-sm">Sign out</button>
+        <button type="button" onClick={() => void signOut()} className="border border-[#1B4332] px-5 py-2.5 text-sm text-[#1B4332]">Sign out</button>
       </div>
     </div>
   );

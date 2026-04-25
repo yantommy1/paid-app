@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { postLoginPathForState } from "@/lib/auth/post-login-path";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(request: NextRequest) {
@@ -15,13 +16,18 @@ export async function GET(request: NextRequest) {
       if (user) {
         const { data: profile } = await supabase
           .from("users")
-          .select("onboarding_completed")
+          .select("onboarding_completed, subscription_status")
           .eq("id", user.id)
           .maybeSingle();
 
-        const done = profile?.onboarding_completed === true;
         return NextResponse.redirect(
-          new URL(done ? "/dashboard" : "/onboarding", request.url)
+          new URL(
+            postLoginPathForState({
+              onboardingCompleted: profile?.onboarding_completed === true,
+              subscriptionStatus: (profile?.subscription_status as string | null) ?? null,
+            }),
+            request.url
+          )
         );
       }
     }

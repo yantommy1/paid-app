@@ -14,9 +14,12 @@ export async function POST(request: NextRequest) {
   const raw = await request.text();
   const sig = request.headers.get("stripe-signature");
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
+  if (!process.env.STRIPE_SECRET_KEY) {
+    return serverError("Stripe is not configured.", 500);
+  }
 
   if (!sig || !secret) {
-    return serverError("Missing signature", 400);
+    return serverError("Missing webhook signature.", 400);
   }
 
   let event: Stripe.Event;
@@ -63,11 +66,9 @@ export async function POST(request: NextRequest) {
               })
               .eq("id", userId);
             if (trialUpdateErr) {
-              console.error("checkout trialing/trial_ends_at update", trialUpdateErr);
+              throw new Error(trialUpdateErr.message);
             }
-          } catch (err) {
-            console.error("subscription checkout.session.completed", err);
-          }
+          } catch {}
         }
         break;
       }
@@ -80,9 +81,7 @@ export async function POST(request: NextRequest) {
             userId: invoiceUserId,
             invoiceId,
           });
-        } catch (err) {
-          console.error("markInvoicePaidWithFees webhook", err);
-        }
+        } catch {}
       }
       break;
     }
@@ -94,18 +93,14 @@ export async function POST(request: NextRequest) {
           : subscription.customer.id;
       try {
         await updateUserSubscriptionByCustomerId(customerId, subscription);
-      } catch (err) {
-        console.error("customer.subscription.updated", err);
-      }
+      } catch {}
       break;
     }
     case "customer.subscription.deleted": {
       const subscription = event.data.object as Stripe.Subscription;
       try {
         await markSubscriptionCanceled(subscription.id);
-      } catch (err) {
-        console.error("customer.subscription.deleted", err);
-      }
+      } catch {}
       break;
     }
     case "payment_intent.succeeded": {
@@ -118,9 +113,7 @@ export async function POST(request: NextRequest) {
             userId,
             invoiceId,
           });
-        } catch (err) {
-          console.error("markInvoicePaidWithFees PI webhook", err);
-        }
+        } catch {}
       }
       break;
     }

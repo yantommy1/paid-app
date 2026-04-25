@@ -1,6 +1,7 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/browser";
+import { postLoginPathForState } from "@/lib/auth/post-login-path";
 import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
 
@@ -37,10 +38,15 @@ async function redirectAfterSession(router: ReturnType<typeof useRouter>) {
   if (!user) return;
   const { data: profile } = await supabase
     .from("users")
-    .select("onboarding_completed")
+    .select("onboarding_completed, subscription_status")
     .eq("id", user.id)
     .maybeSingle();
-  router.push(profile?.onboarding_completed ? "/dashboard" : "/onboarding");
+  router.push(
+    postLoginPathForState({
+      onboardingCompleted: profile?.onboarding_completed === true,
+      subscriptionStatus: (profile?.subscription_status as string | null) ?? null,
+    })
+  );
   router.refresh();
 }
 
@@ -123,12 +129,32 @@ export function LandingEmailForm({ variant = "light", intent = "signup" }: Props
     setMessage(intent === "signup" ? "Check your inbox for your sign-in link." : "Sign-in link sent.");
   }
 
+  async function requestPasswordReset() {
+    if (!email.trim()) {
+      setStatus("error");
+      setMessage("Enter your email first, then request a reset link.");
+      return;
+    }
+    const supabase = createClient();
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: `${origin}/auth/reset-password`,
+    });
+    if (error) {
+      setStatus("error");
+      setMessage(mapAuthError(error.message));
+      return;
+    }
+    setStatus("sent");
+    setMessage("Password reset email sent. Check your inbox.");
+  }
+
   return (
     <form onSubmit={onSubmit} className="space-y-4">
       <div className="flex border-b border-[#E5E5E5]">
         <button
           type="button"
-          className={`px-3 py-2 text-sm ${mode === "signinLink" ? "border-b-2 border-black text-black" : "text-[#6B6B6B]"}`}
+          className={`px-3 py-2 text-sm ${mode === "signinLink" ? "border-b-2 border-[#1B4332] text-[#0D0D0D]" : "text-[#6B6B6B]"}`}
           onClick={() => {
             setMode("signinLink");
             setStatus("idle");
@@ -139,7 +165,7 @@ export function LandingEmailForm({ variant = "light", intent = "signup" }: Props
         </button>
         <button
           type="button"
-          className={`px-3 py-2 text-sm ${mode === "password" ? "border-b-2 border-black text-black" : "text-[#6B6B6B]"}`}
+          className={`px-3 py-2 text-sm ${mode === "password" ? "border-b-2 border-[#1B4332] text-[#0D0D0D]" : "text-[#6B6B6B]"}`}
           onClick={() => {
             setMode("password");
             setStatus("idle");
@@ -178,13 +204,22 @@ export function LandingEmailForm({ variant = "light", intent = "signup" }: Props
             className={inputClass}
             placeholder="Password"
           />
+          {intent === "signin" && (
+            <button
+              type="button"
+              onClick={() => void requestPasswordReset()}
+              className="mt-2 text-xs text-[#1B4332] underline"
+            >
+              Forgot password?
+            </button>
+          )}
         </div>
       )}
 
       <button
         type="submit"
         disabled={status === "loading"}
-        className="w-full bg-black py-2.5 text-sm font-medium text-white disabled:opacity-60"
+        className="w-full bg-[#1B4332] py-2.5 text-sm font-medium text-white disabled:opacity-60"
       >
         {status === "loading"
           ? "Working..."
