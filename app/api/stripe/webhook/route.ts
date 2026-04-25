@@ -52,6 +52,19 @@ export async function POST(request: NextRequest) {
               subscription,
               customerId
             );
+            const trialEndsAt = new Date(
+              Date.now() + 30 * 24 * 60 * 60 * 1000
+            ).toISOString();
+            const { error: trialUpdateErr } = await admin
+              .from("users")
+              .update({
+                subscription_status: "trialing",
+                trial_ends_at: trialEndsAt,
+              })
+              .eq("id", userId);
+            if (trialUpdateErr) {
+              console.error("checkout trialing/trial_ends_at update", trialUpdateErr);
+            }
           } catch (err) {
             console.error("subscription checkout.session.completed", err);
           }

@@ -10,8 +10,10 @@ const BodySchema = z.object({
   plan: z.enum(["starter", "pro"]),
 });
 
-const SUCCESS_URL = "https://paid-app.com/dashboard?subscription=success";
-const CANCEL_URL = "https://paid-app.com/pricing";
+const APP_BASE =
+  (process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || "https://paid-app.com") as string;
+const SUCCESS_URL = `${APP_BASE}/success`;
+const CANCEL_URL = `${APP_BASE}/pricing`;
 
 export async function POST(request: NextRequest) {
   const ctx = await requireUserFromRequest(request);
