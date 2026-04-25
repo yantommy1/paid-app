@@ -8,9 +8,7 @@ export default async function SettingsPage() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) {
-    redirect("/");
-  }
+  if (!user) redirect("/");
 
   const { data: profile } = await supabase
     .from("users")
@@ -23,16 +21,15 @@ export default async function SettingsPage() {
     qbToken && typeof qbToken === "object" && "realm_id" in qbToken
       ? String(qbToken.realm_id ?? "")
       : "";
-  const quickbooksRealmId = realmId.length > 0 ? realmId : null;
 
   return (
-    <main className="min-h-screen bg-paid-ink px-6 py-12 text-paid-mist">
-      <div className="mx-auto max-w-5xl">
+    <main className="min-h-screen bg-white px-6 py-12 text-[#0D0D0D]">
+      <div className="mx-auto max-w-[1200px]">
         <SettingsClient
           email={user.email ?? profile?.email ?? ""}
           quickbooksConnected={profile?.quickbooks_token != null}
           gmailConnected={profile?.gmail_token != null}
-          quickbooksRealmId={quickbooksRealmId}
+          quickbooksRealmId={realmId.length > 0 ? realmId : null}
         />
       </div>
     </main>

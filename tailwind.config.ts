@@ -9,16 +9,17 @@ const config: Config = {
     extend: {
       colors: {
         paid: {
-          brand: "#0f766e",
-          accent: "#14b8a6",
-          ink: "#0A0A0F",
-          mist: "#F2F2F0",
-          volt: "#00E5A0",
+          ink: "#FFFFFF",
+          mist: "#0D0D0D",
+          accent: "#1B4332",
+          secondary: "#6B6B6B",
+          border: "#E5E5E5",
+          surface: "#F7F7F5",
         },
       },
       fontFamily: {
         sans: ["var(--font-inter)", "system-ui", "sans-serif"],
-        display: ["var(--font-dm-serif)", "Georgia", "serif"],
+        display: ["var(--font-playfair)", "Georgia", "serif"],
         mono: ["var(--font-dm-mono)", "ui-monospace", "monospace"],
       },
     },

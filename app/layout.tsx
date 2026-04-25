@@ -1,18 +1,14 @@
 import type { Metadata } from "next";
-import {
-  fontDmMono,
-  fontDmSerifDisplay,
-  fontInter,
-} from "./fonts";
+import { fontDmMono, fontInter, fontPlayfairDisplay } from "./fonts";
 import "./globals.css";
 
 const appUrl = process.env.NEXT_PUBLIC_APP_URL;
 
 export const metadata: Metadata = {
   metadataBase: appUrl ? new URL(appUrl) : undefined,
-  title: "Paid — AI invoice follow-ups",
+  title: "Paid — Get paid faster with AI invoice reminders",
   description:
-    "Automatically follow up on overdue invoices with AI-drafted reminders from your Gmail.",
+    "Paid sends AI-drafted payment reminders from your real email address, automatically. Connect your accounting software and start collecting overdue invoices today.",
 };
 
 export default function RootLayout({
@@ -23,7 +19,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="scroll-smooth">
       <body
-        className={`${fontInter.variable} ${fontDmSerifDisplay.variable} ${fontDmMono.variable} min-h-screen font-sans antialiased`}
+        className={`${fontInter.variable} ${fontPlayfairDisplay.variable} ${fontDmMono.variable} min-h-screen font-sans antialiased`}
       >
         {children}
       </body>

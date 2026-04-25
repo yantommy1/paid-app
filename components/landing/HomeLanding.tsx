@@ -13,191 +13,79 @@ function navAvatarLetter(user: User): string {
   const meta = user.user_metadata as { full_name?: string; name?: string } | undefined;
   const name = meta?.full_name ?? meta?.name;
   const trimmed = typeof name === "string" ? name.trim() : "";
-  if (trimmed.length > 0) {
-    return trimmed.charAt(0).toUpperCase();
-  }
-  const email = user.email ?? "?";
-  return email.charAt(0).toUpperCase();
+  if (trimmed.length > 0) return trimmed.charAt(0).toUpperCase();
+  return (user.email ?? "?").charAt(0).toUpperCase();
 }
 
 export function HomeLanding() {
   const emailSignupRef = useRef<HTMLElement>(null);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [modalIntent, setModalIntent] = useState<AuthIntent>("signup");
   const [inlineIntent, setInlineIntent] = useState<AuthIntent>("signup");
   const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
     const supabase = createClient();
-
-    void supabase.auth.getUser().then(({ data: { user: u } }) => {
-      setUser(u);
-    });
-
+    void supabase.auth.getUser().then(({ data: { user: u } }) => setUser(u));
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
-      setUser(session?.user ?? null);
-      if (event === "SIGNED_IN" && session?.user) {
-        setModalOpen(false);
-      }
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
+    } = supabase.auth.onAuthStateChange((_, session) => setUser(session?.user ?? null));
+    return () => subscription.unsubscribe();
   }, []);
 
-  const openModal = useCallback((intent: AuthIntent) => {
-    setModalIntent(intent);
-    setModalOpen(true);
+  const goToAuth = useCallback((intent: AuthIntent) => {
+    setInlineIntent(intent);
+    window.setTimeout(() => {
+      const el = emailSignupRef.current ?? document.getElementById("email-signup");
+      el?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
   }, []);
-
-  /** Reliable auth entry: open dialog + scroll the inline form into view (fallback if modal closed). */
-  const goToAuth = useCallback(
-    (intent: AuthIntent) => {
-      setInlineIntent(intent);
-      openModal(intent);
-      window.setTimeout(() => {
-        const el =
-          emailSignupRef.current ??
-          document.getElementById("email-signup");
-        el?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 0);
-    },
-    [openModal]
-  );
 
   return (
-    <div className="min-h-screen bg-paid-ink text-paid-mist">
-      {modalOpen && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="auth-modal-title"
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 p-4 sm:items-center"
-          onClick={() => setModalOpen(false)}
-        >
-          <div
-            className="relative w-full max-w-md border border-white/15 bg-paid-ink p-6 shadow-2xl sm:p-8"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              type="button"
-              onClick={() => setModalOpen(false)}
-              className="absolute right-4 top-4 rounded p-1.5 text-paid-mist/50 transition hover:bg-white/5 hover:text-paid-mist"
-              aria-label="Close"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                className="h-5 w-5"
-                aria-hidden
-              >
-                <path d="M18 6 6 18M6 6l12 12" />
-              </svg>
-            </button>
-            <h2
-              id="auth-modal-title"
-              className="font-display text-2xl text-paid-mist pr-8"
-            >
-              {modalIntent === "signup" ? "Join Paid" : "Welcome back"}
-            </h2>
-            <p className="mt-2 text-sm leading-relaxed text-paid-mist/60">
-              {modalIntent === "signup"
-                ? "Use a sign-in link or password \u2014 your choice in the form below."
-                : "Sign-in link or password \u2014 pick what works best for you."}
-            </p>
-            <div className="mt-6">
-              <LandingEmailForm
-                key={`modal-${modalOpen}-${modalIntent}`}
-                variant="dark"
-                intent={modalIntent}
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
-      <nav className="border-b border-white/[0.08]">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-6 py-5 sm:gap-4">
-          <span className="font-display text-2xl tracking-tight text-paid-mist">
-            Paid
-          </span>
+    <div className="min-h-screen bg-white text-[#0D0D0D]">
+      <nav className="border-b border-[#E5E5E5] bg-white">
+        <div className="mx-auto flex w-full max-w-[1200px] items-center justify-between px-6 py-5">
+          <span className="font-display text-3xl text-[#0D0D0D]">Paid</span>
           {user ? (
-            <div className="flex min-w-0 flex-1 items-center justify-end gap-2 sm:flex-none sm:gap-3">
-              <span
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#00E5A0]/20 font-mono text-sm text-[#00E5A0]"
-                aria-hidden
-              >
+            <div className="flex items-center gap-3">
+              <span className="flex h-8 w-8 items-center justify-center rounded-full border border-[#E5E5E5] text-sm text-[#0D0D0D]">
                 {navAvatarLetter(user)}
               </span>
-              <Link
-                href="/dashboard"
-                className="text-sm font-medium text-paid-mist/80 transition hover:text-[#00E5A0]"
-              >
+              <Link href="/dashboard" className="text-sm text-[#0D0D0D]">
                 Dashboard
               </Link>
             </div>
           ) : (
-            <div className="flex flex-1 flex-wrap items-center justify-end gap-3 sm:flex-none sm:gap-6">
-              <button
-                type="button"
-                onClick={() => goToAuth("signup")}
-                className="text-sm font-medium text-paid-mist/80 transition hover:text-[#00E5A0]"
-              >
-                Get started
-              </button>
-              <button
-                type="button"
-                onClick={() => goToAuth("signin")}
-                className="text-sm font-medium text-paid-mist/80 transition hover:text-[#00E5A0]"
-              >
-                Sign in
-              </button>
+            <div className="flex items-center gap-6 text-sm text-[#0D0D0D]">
+              <button type="button" onClick={() => goToAuth("signup")}>Get started</button>
+              <button type="button" onClick={() => goToAuth("signin")}>Sign in</button>
             </div>
           )}
         </div>
       </nav>
 
       <main>
-        <section className="border-b border-white/[0.08]">
-          <div className="mx-auto grid max-w-6xl grid-cols-1 gap-14 px-6 py-20 lg:grid-cols-[minmax(0,1.08fr)_minmax(0,0.92fr)] lg:items-center lg:py-28">
+        <section className="py-24">
+          <div className="mx-auto grid w-full max-w-[1200px] gap-14 px-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] lg:items-center">
             <SectionReveal>
               <div>
-                <div
-                  className="mb-6 h-0.5 w-[60px] bg-[#00E5A0]"
-                  aria-hidden
-                />
-                <h1 className="font-display text-[2.65rem] font-normal leading-[0.98] tracking-tight text-paid-mist sm:text-5xl md:text-6xl lg:text-[4.25rem]">
-                  Your invoices.
+                <div className="mb-8 h-[2px] w-12 bg-[#1B4332]" aria-hidden />
+                <h1 className="font-display text-[3rem] leading-[0.95] tracking-tight text-[#0D0D0D] sm:text-[4rem] lg:text-[72px]">
+                  You did the work.
                   <br />
-                  Collected.
+                  We&apos;ll get you paid.
                 </h1>
-                <p className="mt-6 max-w-xl text-lg leading-relaxed text-paid-mist/72">
-                  Paid connects QuickBooks and Gmail, then sends AI-drafted payment
-                  reminders in your voice{" "}
-                  <span className="whitespace-nowrap">
-                    {"\u2014 automatically."}
-                  </span>
+                <p className="mt-6 max-w-xl text-[18px] leading-relaxed text-[#6B6B6B]">
+                  Paid syncs your invoices and sends AI-drafted payment reminders from your real email — automatically, in your voice.
                 </p>
-                <div className="mt-10 flex flex-wrap items-center gap-4">
+                <div className="mt-10 flex flex-wrap items-center gap-6">
                   <button
                     type="button"
                     onClick={() => goToAuth("signup")}
-                    className="inline-flex items-center justify-center rounded-md bg-[#00E5A0] px-6 py-3 text-sm font-semibold text-paid-ink transition hover:brightness-110"
+                    className="bg-black px-6 py-3 text-sm font-medium text-white"
                   >
-                    Get started free
+                    Get started
                   </button>
-                  <a
-                    href="#how-it-works"
-                    className="inline-flex items-center justify-center rounded-md border border-white/20 px-6 py-3 text-sm font-medium text-paid-mist transition hover:border-[#00E5A0]/45 hover:text-[#00E5A0]"
-                  >
-                    See how it works
+                  <a href="#how-it-works" className="text-sm text-[#0D0D0D]">
+                    See how it works →
                   </a>
                 </div>
               </div>
@@ -208,274 +96,166 @@ export function HomeLanding() {
           </div>
         </section>
 
-        <section className="border-b border-white/[0.08]">
-          <div className="mx-auto max-w-6xl px-6 py-20 md:py-24">
+        <section className="border-t border-[#E5E5E5] py-24">
+          <div className="mx-auto w-full max-w-[1200px] px-6">
             <SectionReveal>
-              <h2 className="max-w-3xl font-display text-3xl leading-tight tracking-tight text-paid-mist md:text-4xl lg:text-[2.75rem]">
-                You did the work. Getting paid shouldn&apos;t be.
+              <h2 className="font-display text-4xl tracking-tight text-[#0D0D0D]">
+                Getting paid shouldn&apos;t be a second job.
               </h2>
               <div className="mt-14 grid gap-6 md:grid-cols-3">
                 {[
-                  {
-                    stat: "$825B",
-                    rest: "in outstanding AR held by US small businesses",
-                  },
-                  {
-                    stat: "47",
-                    rest: "days average payment delay in professional services",
-                  },
-                  {
-                    stat: "23%",
-                    rest: "of invoices are never collected after 90 days",
-                  },
+                  { stat: "$825B", body: "in outstanding AR held by US small businesses" },
+                  { stat: "47", body: "days average payment delay in professional services" },
+                  { stat: "23%", body: "of invoices are never collected after 90 days" },
                 ].map((card) => (
-                  <div
-                    key={card.stat}
-                    className="border border-white/[0.08] border-l-2 border-l-[#00E5A0] bg-white/[0.02] px-6 py-7"
-                  >
-                    <p className="font-mono text-3xl tabular-nums tracking-tight text-paid-mist md:text-[2rem]">
-                      {card.stat}
-                    </p>
-                    <p className="mt-4 text-sm leading-relaxed text-paid-mist/65">
-                      {card.rest}
-                    </p>
-                  </div>
+                  <article key={card.stat} className="border border-[#E5E5E5] bg-white px-6 py-7">
+                    <div className="mb-5 h-8 border-l-2 border-[#1B4332]" aria-hidden />
+                    <p className="font-display text-5xl leading-none text-[#0D0D0D]">{card.stat}</p>
+                    <p className="mt-4 text-sm leading-relaxed text-[#6B6B6B]">{card.body}</p>
+                  </article>
                 ))}
               </div>
             </SectionReveal>
           </div>
         </section>
 
-        <section
-          id="how-it-works"
-          className="scroll-mt-24 border-b border-white/[0.08]"
-        >
-          <div className="mx-auto max-w-6xl px-6 py-20 md:py-24">
+        <section id="how-it-works" className="bg-[#F7F7F5] py-24">
+          <div className="mx-auto w-full max-w-[1200px] px-6">
             <SectionReveal>
-              <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-white/40">
-                How it works
-              </p>
-              <h2 className="mt-3 font-display text-3xl tracking-tight text-paid-mist md:text-4xl">
-                Three steps. One outcome.
-              </h2>
-              <div className="mt-16 lg:mt-20">
-                <div className="relative lg:pt-2">
-                  <div
-                    aria-hidden
-                    className="pointer-events-none absolute left-[5%] right-[5%] top-[21px] hidden h-px bg-white/[0.12] lg:block"
-                  />
-                  <div className="grid gap-12 lg:grid-cols-3 lg:gap-8">
-                    {[
-                      {
-                        step: "01",
-                        title: "Connect QuickBooks",
-                        body: "Syncs your AR aging automatically.",
-                      },
-                      {
-                        step: "02",
-                        title: "AI drafts the reminder",
-                        body: "Calibrated to relationship and days overdue.",
-                      },
-                      {
-                        step: "03",
-                        title: "Sends from your Gmail",
-                        body: "Looks like you wrote it, not a robot.",
-                      },
-                    ].map((item, i) => (
-                      <div key={item.step} className="relative flex flex-col">
-                        <div className="mb-6 flex items-center gap-4 lg:block">
-                          <span className="relative z-[1] inline-flex h-10 w-10 shrink-0 items-center justify-center border border-white/15 bg-paid-ink font-mono text-xs text-[#00E5A0]">
-                            {item.step}
-                          </span>
-                          {i < 2 && (
-                            <div
-                              aria-hidden
-                              className="h-px flex-1 bg-white/[0.12] lg:hidden"
-                            />
-                          )}
-                        </div>
-                        <h3 className="font-display text-xl text-paid-mist">
-                          {item.title}
-                        </h3>
-                        <p className="mt-2 text-sm leading-relaxed text-paid-mist/65">
-                          {item.body}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+              <p className="text-xs uppercase tracking-[0.18em] text-[#6B6B6B]">How it works</p>
+              <h2 className="mt-3 font-display text-4xl text-[#0D0D0D]">Three steps. One outcome.</h2>
+              <div className="mt-14 grid gap-8 md:grid-cols-3">
+                {[
+                  ["1", "Connect QuickBooks", "Sync open invoices and customer details."],
+                  ["2", "Generate reminders", "Create polished follow-up drafts for each client."],
+                  ["3", "Send from Gmail", "Deliver reminders from the inbox your clients trust."],
+                ].map(([n, t, b]) => (
+                  <article key={t} className="space-y-3">
+                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-black text-xs font-medium text-white">
+                      {n}
+                    </span>
+                    <h3 className="text-lg font-medium text-[#0D0D0D]">{t}</h3>
+                    <p className="text-sm leading-relaxed text-[#6B6B6B]">{b}</p>
+                  </article>
+                ))}
               </div>
             </SectionReveal>
           </div>
         </section>
 
-        <section className="border-b border-white/[0.08]">
-          <div className="mx-auto max-w-6xl px-6 py-20 md:py-24">
+        <section className="py-24">
+          <div className="mx-auto grid w-full max-w-[1200px] gap-12 px-6 lg:grid-cols-2 lg:gap-20">
             <SectionReveal>
-              <div className="grid gap-14 lg:grid-cols-2 lg:gap-20">
-                <div>
-                  <h2 className="font-display text-3xl leading-[1.12] tracking-tight text-paid-mist md:text-4xl lg:text-[2.65rem]">
-                    {"Built for firms that bill on trust \u2014 and need cash in the door."}
-                  </h2>
-                </div>
-                <ul className="divide-y divide-white/[0.08] border-t border-white/[0.08]">
-                  {[
-                    "Sends from your real Gmail address \u2014 not a noreply",
-                    "Tone calibrated to 30 / 60 / 90 day buckets",
-                    "Surfaces overdue invoices when you open a client email",
-                    "One-tap send from the Gmail sidebar",
-                    "Stronger follow-up for balances past 60 days",
-                  ].map((line) => (
-                    <li
-                      key={line}
-                      className="py-5 text-sm leading-relaxed text-paid-mist/80 transition hover:text-[#00E5A0]"
-                    >
-                      {line}
-                    </li>
-                  ))}
-                </ul>
+              <h2 className="font-display text-[42px] leading-tight text-[#0D0D0D]">
+                Built for firms that bill on trust — and need cash in the door.
+              </h2>
+            </SectionReveal>
+            <SectionReveal>
+              <div className="border-t border-[#E5E5E5]">
+                {[
+                  "Reminders sent from your real email address — not a noreply",
+                  "Tone calibrated to 30, 60, and 90 day buckets",
+                  "Surfaces overdue invoices when you open a client email",
+                  "One click to send from your inbox",
+                  "Stronger follow-up for balances past 60 days",
+                ].map((line) => (
+                  <p key={line} className="border-b border-[#E5E5E5] py-5 text-sm text-[#0D0D0D] transition hover:text-[#1B4332]">
+                    {line}
+                  </p>
+                ))}
               </div>
             </SectionReveal>
           </div>
         </section>
 
-        <section
-          ref={emailSignupRef}
-          id="email-signup"
-          className="scroll-mt-24 border-b border-white/[0.08]"
-        >
-          <div className="mx-auto max-w-6xl px-6 py-20 md:py-24">
+        <section ref={emailSignupRef} id="email-signup" className="bg-[#F7F7F5] py-24">
+          <div className="mx-auto w-full max-w-[1200px] px-6">
             <SectionReveal>
-              <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-white/40">
-                Pricing
-              </p>
-              <h2 className="mt-3 font-display text-3xl tracking-tight text-paid-mist md:text-4xl">
-                Straightforward. No surprises.
-              </h2>
+              <p className="text-xs uppercase tracking-[0.18em] text-[#6B6B6B]">Pricing</p>
+              <h2 className="mt-3 font-display text-4xl text-[#0D0D0D]">Simple pricing. No surprises.</h2>
               <div className="mt-14 grid gap-6 md:grid-cols-2">
-                <div className="flex flex-col border border-white/[0.1] bg-white/[0.02] p-8">
-                  <p className="font-display text-xl text-paid-mist">Starter</p>
-                  <p className="mt-4 font-mono text-4xl tabular-nums text-paid-mist">
-                    $49
-                    <span className="text-lg text-paid-mist/45">/mo</span>
+                <article className="border border-[#E5E5E5] bg-white p-8">
+                  <h3 className="font-display text-2xl text-[#0D0D0D]">Starter</h3>
+                  <p className="mt-3 font-display text-5xl text-[#0D0D0D]">
+                    $49<span className="ml-1 text-lg text-[#6B6B6B]">/mo</span>
                   </p>
-                  <ul className="mt-8 flex-1 space-y-3 text-sm text-paid-mist/70">
-                    <li>Up to 50 invoices</li>
-                    <li>AI reminders</li>
-                    <li>Gmail Add-On</li>
-                    <li>QuickBooks sync</li>
-                  </ul>
+                  <div className="mt-8 space-y-2 text-sm text-[#6B6B6B]">
+                    <p>Up to 50 invoices</p>
+                    <p>AI reminders</p>
+                    <p>Gmail Add-On</p>
+                    <p>QuickBooks sync</p>
+                  </div>
                   <button
                     type="button"
                     onClick={() => goToAuth("signup")}
-                    className="mt-10 inline-flex w-full items-center justify-center rounded-md border border-white/20 py-3 text-sm font-semibold text-paid-mist transition hover:border-[#00E5A0]/45 hover:bg-[#00E5A0]/10 hover:text-[#00E5A0]"
+                    className="mt-10 w-full border border-black py-3 text-sm font-medium text-black"
                   >
                     Get started
                   </button>
-                </div>
-                <div className="flex flex-col border border-[#00E5A0]/45 bg-[#00E5A0]/[0.04] p-8">
-                  <p className="font-display text-xl text-paid-mist">Pro</p>
-                  <p className="mt-4 font-mono text-4xl tabular-nums text-paid-mist">
-                    $99
-                    <span className="text-lg text-paid-mist/45">/mo</span>
-                  </p>
-                  <ul className="mt-8 flex-1 space-y-3 text-sm text-paid-mist/75">
-                    <li>Unlimited invoices</li>
-                    <li>Recovery tools for long-past-due balances</li>
-                    <li>Priority support</li>
-                    <li>Custom reminder sequences</li>
-                  </ul>
-                  <button
-                    type="button"
-                    onClick={() => goToAuth("signup")}
-                    className="mt-10 inline-flex w-full items-center justify-center rounded-md bg-[#00E5A0] py-3 text-sm font-semibold text-paid-ink transition hover:brightness-110"
-                  >
-                    Get started
-                  </button>
-                </div>
-              </div>
-              <p className="mt-6 text-center text-sm text-paid-mist/45">
-                No credit card required to start. Cancel anytime.
-              </p>
+                </article>
 
-              <div className="mx-auto mt-20 max-w-lg border border-white/[0.1] bg-white/[0.02] p-8 md:p-10">
-                <div className="flex flex-wrap gap-2 rounded-md border border-white/10 p-1">
+                <article className="border border-[#1B4332] bg-[#1B4332]/[0.05] p-8">
+                  <h3 className="font-display text-2xl text-[#0D0D0D]">Pro</h3>
+                  <p className="mt-3 font-display text-5xl text-[#0D0D0D]">
+                    $99<span className="ml-1 text-lg text-[#6B6B6B]">/mo</span>
+                  </p>
+                  <div className="mt-8 space-y-2 text-sm text-[#6B6B6B]">
+                    <p>Unlimited invoices</p>
+                    <p>Custom reminder strategies</p>
+                    <p>Priority support</p>
+                    <p>Advanced recovery workflows</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => goToAuth("signup")}
+                    className="mt-10 w-full bg-black py-3 text-sm font-medium text-white"
+                  >
+                    Get started
+                  </button>
+                </article>
+              </div>
+
+              <div className="mx-auto mt-20 max-w-xl border border-[#E5E5E5] bg-white p-8">
+                <div className="flex border-b border-[#E5E5E5]">
                   <button
                     type="button"
                     onClick={() => setInlineIntent("signup")}
-                    className={`flex-1 rounded px-3 py-2 text-sm font-medium transition ${
-                      inlineIntent === "signup"
-                        ? "bg-[#00E5A0]/15 text-[#00E5A0]"
-                        : "text-paid-mist/60 hover:text-paid-mist"
-                    }`}
+                    className={`px-3 py-2 text-sm ${inlineIntent === "signup" ? "border-b-2 border-black text-black" : "text-[#6B6B6B]"}`}
                   >
                     New to Paid
                   </button>
                   <button
                     type="button"
                     onClick={() => setInlineIntent("signin")}
-                    className={`flex-1 rounded px-3 py-2 text-sm font-medium transition ${
-                      inlineIntent === "signin"
-                        ? "bg-[#00E5A0]/15 text-[#00E5A0]"
-                        : "text-paid-mist/60 hover:text-paid-mist"
-                    }`}
+                    className={`px-3 py-2 text-sm ${inlineIntent === "signin" ? "border-b-2 border-black text-black" : "text-[#6B6B6B]"}`}
                   >
                     Sign in
                   </button>
                 </div>
-                <h3 className="mt-6 font-display text-2xl text-paid-mist">
-                  {inlineIntent === "signup"
-                    ? "Create your account"
-                    : "Sign in to Paid"}
+                <h3 className="mt-6 font-display text-3xl text-[#0D0D0D]">
+                  {inlineIntent === "signup" ? "Start collecting what you&apos;ve earned." : "Welcome back"}
                 </h3>
-                <p className="mt-2 text-sm leading-relaxed text-paid-mist/60">
+                <p className="mt-2 text-sm leading-relaxed text-[#6B6B6B]">
                   {inlineIntent === "signup"
-                    ? "Enter your work email \u2014 we will send a secure link to get you started."
-                    : "Enter the email you used before \u2014 we will send a link to open Paid."}
+                    ? "Enter your work email to get started."
+                    : "Enter your email and we will send a secure sign-in link."}
                 </p>
                 <div className="mt-8">
-                  <LandingEmailForm
-                    key={`inline-${inlineIntent}`}
-                    variant="dark"
-                    intent={inlineIntent}
-                  />
+                  <LandingEmailForm key={`inline-${inlineIntent}`} variant="light" intent={inlineIntent} />
                 </div>
               </div>
             </SectionReveal>
           </div>
         </section>
 
-        <footer className="border-t border-white/[0.08]">
-          <div className="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-12 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex flex-col gap-3">
-              <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-                <span className="font-display text-xl text-paid-mist">Paid</span>
-                <nav
-                  className="flex flex-wrap items-center gap-x-5 text-sm text-paid-mist/55"
-                  aria-label="Legal"
-                >
-                  <Link
-                    href="/privacy"
-                    className="transition hover:text-paid-mist"
-                  >
-                    Privacy
-                  </Link>
-                  <Link
-                    href="/terms"
-                    className="transition hover:text-paid-mist"
-                  >
-                    Terms
-                  </Link>
-                </nav>
-              </div>
-              <span className="text-sm text-paid-mist/50">
-                Built for professional services firms.
-              </span>
+        <footer className="border-t border-[#E5E5E5] py-12">
+          <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-4 px-6 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-6">
+              <span className="font-display text-2xl text-[#0D0D0D]">Paid</span>
+              <Link href="/privacy" className="text-sm text-[#6B6B6B] hover:text-[#0D0D0D]">Privacy</Link>
+              <Link href="/terms" className="text-sm text-[#6B6B6B] hover:text-[#0D0D0D]">Terms</Link>
             </div>
-            <p className="text-sm text-paid-mist/40 sm:shrink-0">
-              {"\u00A9 "}
-              {new Date().getFullYear()} Paid. All rights reserved.
-            </p>
+            <p className="text-sm text-[#6B6B6B]">You did the work. We&apos;ll get you paid.</p>
           </div>
         </footer>
       </main>

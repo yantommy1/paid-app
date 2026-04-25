@@ -5,54 +5,16 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
-/**
- * Primary: connection flags from the database.
- * Secondary: OAuth redirect ?step= hints (after Intuit/Google callback), never overrides DB.
- */
-function computeOnboardingStep(
-  quickbooksConnected: boolean,
-  gmailConnected: boolean,
-  initialStep?: string
-): number {
-  let step: number;
-  if (quickbooksConnected && gmailConnected) {
-    step = 3;
-  } else if (quickbooksConnected) {
-    step = 2;
-  } else {
-    step = 1;
-  }
-  if (initialStep === "quickbooks-done" && quickbooksConnected) {
-    step = Math.max(step, 2);
-  }
-  if (initialStep === "gmail-done" && quickbooksConnected && gmailConnected) {
-    step = Math.max(step, 3);
-  }
+function computeOnboardingStep(quickbooksConnected: boolean, gmailConnected: boolean, initialStep?: string): number {
+  let step = quickbooksConnected && gmailConnected ? 3 : quickbooksConnected ? 2 : 1;
+  if (initialStep === "quickbooks-done" && quickbooksConnected) step = Math.max(step, 2);
+  if (initialStep === "gmail-done" && quickbooksConnected && gmailConnected) step = Math.max(step, 3);
   return step;
 }
 
 function ConnectedPill() {
   return (
-    <div
-      className="mt-5 inline-flex cursor-default items-center gap-2 rounded-lg border border-[#00E5A0]/35 bg-[#00E5A0]/10 px-4 py-2.5 text-sm font-semibold text-[#00E5A0]"
-      role="status"
-      aria-label="Connected"
-    >
-      <svg
-        className="h-4 w-4 shrink-0"
-        viewBox="0 0 16 16"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-        aria-hidden
-      >
-        <path
-          d="M13.5 4.5L6.5 11.5L2.5 7.5"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
+    <div className="mt-5 inline-flex items-center gap-2 border border-[#1B4332]/30 bg-[#1B4332]/10 px-4 py-2 text-sm font-medium text-[#1B4332]">
       Connected
     </div>
   );
@@ -65,12 +27,7 @@ type Props = {
   gmailConnected: boolean;
 };
 
-export function OnboardingClient({
-  initialStep,
-  email,
-  quickbooksConnected,
-  gmailConnected,
-}: Props) {
+export function OnboardingClient({ initialStep, email, quickbooksConnected, gmailConnected }: Props) {
   const router = useRouter();
   const [completing, setCompleting] = useState(false);
   const [completeError, setCompleteError] = useState<string | null>(null);
@@ -86,31 +43,18 @@ export function OnboardingClient({
     let cancelled = false;
     fetch("/api/user/status", { credentials: "include" })
       .then((res) => (res.ok ? res.json() : null))
-      .then(
-        (data: {
-          quickbooksConnected?: boolean;
-          gmailConnected?: boolean;
-        } | null) => {
-          if (cancelled || !data) return;
-          if (typeof data.quickbooksConnected === "boolean") {
-            setQbConn(data.quickbooksConnected);
-          }
-          if (typeof data.gmailConnected === "boolean") {
-            setGmConn(data.gmailConnected);
-          }
-        }
-      )
+      .then((data: { quickbooksConnected?: boolean; gmailConnected?: boolean } | null) => {
+        if (cancelled || !data) return;
+        if (typeof data.quickbooksConnected === "boolean") setQbConn(data.quickbooksConnected);
+        if (typeof data.gmailConnected === "boolean") setGmConn(data.gmailConnected);
+      })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const step = useMemo(
-    () => computeOnboardingStep(qbConn, gmConn, initialStep),
-    [qbConn, gmConn, initialStep]
-  );
-
+  const step = useMemo(() => computeOnboardingStep(qbConn, gmConn, initialStep), [qbConn, gmConn, initialStep]);
   const canFinishSetup = qbConn && gmConn;
 
   async function signOut() {
@@ -138,111 +82,51 @@ export function OnboardingClient({
     }
   }
 
-  const card = (active: boolean) =>
-    `rounded-xl border p-6 transition ${
-      active
-        ? "border-[#00E5A0]/45 bg-white/[0.03]"
-        : "border-white/[0.1] bg-white/[0.01]"
-    }`;
+  const card = "border border-[#E5E5E5] bg-white p-6";
 
   return (
     <div className="space-y-10">
-      <header className="flex flex-col gap-6 border-b border-white/[0.08] pb-10 sm:flex-row sm:items-start sm:justify-between">
+      <header className="flex flex-col gap-6 border-b border-[#E5E5E5] pb-10 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <Link
-            href="/"
-            className="font-display text-2xl tracking-tight text-paid-mist transition hover:text-[#00E5A0]"
-          >
-            Paid
-          </Link>
-          <p className="mt-2 font-mono text-[11px] uppercase tracking-[0.2em] text-white/40">
-            Setup
-          </p>
-          <p className="mt-4 text-sm text-paid-mist/55">Signed in as {email}</p>
+          <Link href="/" className="font-display text-3xl text-[#0D0D0D]">Paid</Link>
+          <p className="mt-2 text-xs uppercase tracking-[0.18em] text-[#6B6B6B]">Setup</p>
+          <p className="mt-4 text-sm text-[#6B6B6B]">Signed in as {email}</p>
         </div>
-        <button
-          type="button"
-          onClick={() => void signOut()}
-          className="shrink-0 rounded-lg border border-white/20 px-4 py-2.5 text-sm font-semibold text-paid-mist transition hover:border-[#00E5A0]/45 hover:text-[#00E5A0]"
-        >
-          Sign out
-        </button>
+        <button type="button" onClick={() => void signOut()} className="border border-black px-4 py-2 text-sm text-black">Sign out</button>
       </header>
 
       <ol className="space-y-6">
-        <li className={card(step >= 1)}>
-          <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-[#00E5A0]/80">
-            Step 1
-          </span>
-          <h2 className="mt-2 font-display text-xl text-paid-mist">
-            Connect QuickBooks
-          </h2>
-          <p className="mt-2 text-sm leading-relaxed text-paid-mist/65">
-            Authorize read access to unpaid invoices. We sync your open balances
-            securely.
-          </p>
+        <li className={card}>
+          <span className="text-xs uppercase tracking-[0.16em] text-[#1B4332]">Step 1</span>
+          <h2 className="mt-2 font-display text-2xl">Connect QuickBooks</h2>
+          <p className="mt-2 text-sm leading-relaxed text-[#6B6B6B]">Authorize read access to unpaid invoices.</p>
           {qbConn ? (
             <ConnectedPill />
           ) : (
-            <a
-              href="/api/auth/quickbooks"
-              className="mt-5 inline-block rounded-lg bg-[#00E5A0] px-4 py-2.5 text-sm font-semibold text-paid-ink transition hover:brightness-110"
-            >
-              Connect QuickBooks
-            </a>
+            <a href="/api/auth/quickbooks" className="mt-5 inline-block bg-black px-4 py-2.5 text-sm text-white">Connect QuickBooks</a>
           )}
         </li>
 
-        <li className={card(step >= 2)}>
-          <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-[#00E5A0]/80">
-            Step 2
-          </span>
-          <h2 className="mt-2 font-display text-xl text-paid-mist">
-            Connect Gmail
-          </h2>
-          <p className="mt-2 text-sm leading-relaxed text-paid-mist/65">
-            Allow Paid to send reminders from your work Gmail address.
-          </p>
+        <li className={card}>
+          <span className="text-xs uppercase tracking-[0.16em] text-[#1B4332]">Step 2</span>
+          <h2 className="mt-2 font-display text-2xl">Connect Gmail</h2>
+          <p className="mt-2 text-sm leading-relaxed text-[#6B6B6B]">Allow Paid to send reminders from your Gmail address.</p>
           {gmConn ? (
             <ConnectedPill />
           ) : (
-            <a
-              href="/api/auth/gmail"
-              className="mt-5 inline-block rounded-lg bg-[#00E5A0] px-4 py-2.5 text-sm font-semibold text-paid-ink transition hover:brightness-110"
-            >
-              Connect Gmail
-            </a>
+            <a href="/api/auth/gmail" className="mt-5 inline-block bg-black px-4 py-2.5 text-sm text-white">Connect Gmail</a>
           )}
         </li>
 
-        <li className={card(step >= 3)}>
-          <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-[#00E5A0]/80">
-            Step 3
-          </span>
-          <h2 className="mt-2 font-display text-xl text-paid-mist">
-            Install the Gmail Add-On
-          </h2>
-          <p className="mt-4 text-sm leading-relaxed text-paid-mist/75">
-            Open Gmail{" "}
-            <span className="text-paid-mist/50" aria-hidden>
-              →
-            </span>{" "}
-            look for the Paid icon in the right sidebar{" "}
-            <span className="text-paid-mist/50" aria-hidden>
-              →
-            </span>{" "}
-            enter your API base URL (
-            <span className="font-mono text-[13px] text-paid-mist/90">
-              https://paid-app.com
-            </span>
-            ) and the connection key below.
-          </p>
-          <p className="mt-6 text-sm text-paid-mist/60">
-            Generate a connection key for the add-on (you can rotate it anytime):
+        <li className={card}>
+          <span className="text-xs uppercase tracking-[0.16em] text-[#1B4332]">Step 3</span>
+          <h2 className="mt-2 font-display text-2xl">Install the Gmail Add-On</h2>
+          <p className="mt-4 text-sm leading-relaxed text-[#6B6B6B]">
+            Open Gmail, find the Paid icon in the right sidebar, then enter your API base URL and connection key.
           </p>
           <button
             type="button"
-            className="mt-3 rounded-lg bg-[#00E5A0] px-4 py-2.5 text-sm font-semibold text-paid-ink transition hover:brightness-110"
+            className="mt-4 bg-black px-4 py-2.5 text-sm text-white"
             onClick={async () => {
               const res = await fetch("/api/auth/api-key", { method: "POST" });
               const j = (await res.json()) as { api_key?: string; error?: string };
@@ -250,43 +134,33 @@ export function OnboardingClient({
                 try {
                   await navigator.clipboard.writeText(j.api_key);
                 } catch {
-                  /* ignore */
+                  // ignore
                 }
-                window.alert(
-                  "Connection key copied. Paste it into Paid in Gmail under add-on settings."
-                );
+                window.alert("Connection key copied.");
               } else {
-                window.alert(j.error ?? "Could not create a key. Try again.");
+                window.alert(j.error ?? "Could not create a key.");
               }
             }}
           >
             Generate and copy key
           </button>
 
-          <div className="mt-10 border-t border-white/10 pt-8">
+          <div className="mt-10 border-t border-[#E5E5E5] pt-8">
             {canFinishSetup ? (
               <>
-                <p className="text-sm text-paid-mist/70">
-                  When you are ready, continue to your dashboard.
-                </p>
+                <p className="text-sm text-[#6B6B6B]">When you are ready, continue to your dashboard.</p>
                 <button
                   type="button"
                   disabled={completing}
                   onClick={() => void completeOnboarding()}
-                  className="mt-4 rounded-lg border border-[#00E5A0]/50 bg-[#00E5A0]/10 px-5 py-2.5 text-sm font-semibold text-[#00E5A0] transition hover:bg-[#00E5A0]/15 disabled:opacity-50"
+                  className="mt-4 border border-black bg-black px-5 py-2.5 text-sm text-white disabled:opacity-50"
                 >
-                  {completing ? "Saving…" : "Go to dashboard"}
+                  {completing ? "Saving..." : "Go to dashboard"}
                 </button>
-                {completeError && (
-                  <p className="mt-2 text-sm text-red-400" role="alert">
-                    {completeError}
-                  </p>
-                )}
+                {completeError && <p className="mt-2 text-sm text-red-600">{completeError}</p>}
               </>
             ) : (
-              <p className="text-sm text-paid-mist/65" role="status">
-                Connect QuickBooks and Gmail above to continue.
-              </p>
+              <p className="text-sm text-[#6B6B6B]">Connect QuickBooks and Gmail above to continue.</p>
             )}
           </div>
         </li>

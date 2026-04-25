@@ -1,20 +1,16 @@
-import { DM_Mono, DM_Serif_Display, Inter } from "next/font/google";
+import { DM_Mono, Inter, Playfair_Display } from "next/font/google";
 
-/**
- * All next/font/google loaders must run at module scope (not inside components).
- * See: https://nextjs.org/docs/app/building-your-application/optimizing/fonts
- */
 export const fontInter = Inter({
   subsets: ["latin"],
   variable: "--font-inter",
   display: "swap",
 });
 
-export const fontDmSerifDisplay = DM_Serif_Display({
-  weight: "400",
+export const fontPlayfairDisplay = Playfair_Display({
   subsets: ["latin"],
-  variable: "--font-dm-serif",
+  variable: "--font-playfair",
   display: "swap",
+  weight: ["400", "500", "600", "700"],
 });
 
 export const fontDmMono = DM_Mono({

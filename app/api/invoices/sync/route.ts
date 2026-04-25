@@ -19,20 +19,14 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (error || !row?.quickbooks_token) {
-    return NextResponse.json(
-      { error: "QuickBooks not connected" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "QuickBooks not connected" }, { status: 400 });
   }
 
   let token = row.quickbooks_token as unknown as QuickBooksToken;
   try {
     const fresh = await ensureQuickBooksToken(token);
     if (!fresh) {
-      return NextResponse.json(
-        { error: "QuickBooks token invalid — reconnect." },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "QuickBooks token invalid — reconnect." }, { status: 401 });
     }
     token = fresh;
 
@@ -43,11 +37,8 @@ export async function POST(request: NextRequest) {
       .eq("id", user.id);
 
     const result = await syncInvoicesForUser(admin, user.id, token);
-    return NextResponse.json({
-      ok: true,
-      upserted: result.upserted,
-      overdueCount: result.overdueCount,
-    });
+    const syncedAt = new Date().toISOString();
+    return NextResponse.json({ ok: true, upserted: result.upserted, overdueCount: result.overdueCount, lastSyncedAt: syncedAt });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Sync failed";
     return NextResponse.json({ error: message }, { status: 500 });
