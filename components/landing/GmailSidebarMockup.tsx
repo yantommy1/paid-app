@@ -30,7 +30,15 @@ export function GmailSidebarMockup() {
                 <p className="text-sm font-medium text-[#0D0D0D]">{row.client}</p>
                 <p className="mt-0.5 text-xs text-[#6B6B6B]">{row.amount}</p>
               </div>
-              <span className="rounded border border-[#1B4332]/30 bg-[#1B4332]/10 px-1.5 py-0.5 text-[10px] font-medium text-[#1B4332]">
+              <span
+                className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                  row.days >= 90
+                    ? "bg-red-100 text-red-700"
+                    : row.days >= 60
+                      ? "bg-orange-100 text-orange-700"
+                      : "bg-yellow-100 text-yellow-700"
+                }`}
+              >
                 {row.days}d
               </span>
             </div>

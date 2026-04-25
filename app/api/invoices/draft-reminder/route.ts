@@ -1,4 +1,5 @@
 import { draftReminderEmail } from "@/lib/anthropic/draft";
+import { notFound, serverError } from "@/lib/api/errors";
 import { requireUserFromRequest } from "@/lib/api/require-user-request";
 import { createRouteHandlerClient } from "@/lib/supabase/route-client";
 import { NextRequest, NextResponse } from "next/server";
@@ -16,12 +17,12 @@ export async function POST(request: NextRequest) {
   try {
     json = await request.json();
   } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    return serverError("Invalid JSON", 400);
   }
 
   const parsed = BodySchema.safeParse(json);
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    return serverError("Invalid payload", 400);
   }
 
   const supabase = await createRouteHandlerClient(request);
@@ -33,7 +34,7 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (error || !inv) {
-    return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
+    return notFound("Invoice not found");
   }
 
   const ownerName = ctx.user.email?.split("@")[0] ?? "there";
@@ -54,6 +55,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ subject: draft.subject, body: draft.body });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Draft failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return serverError(message);
   }
 }

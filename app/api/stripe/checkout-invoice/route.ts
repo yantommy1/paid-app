@@ -1,4 +1,5 @@
 import { feeAmountFromSettings } from "@/lib/fees/contingency";
+import { notFound, serverError } from "@/lib/api/errors";
 import { requireUserFromRequest } from "@/lib/api/require-user-request";
 import { createDestinationCheckout } from "@/lib/stripe/connect";
 import { createRouteHandlerClient } from "@/lib/supabase/route-client";
@@ -21,12 +22,12 @@ export async function POST(request: NextRequest) {
   try {
     json = await request.json();
   } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    return serverError("Invalid JSON", 400);
   }
 
   const parsed = BodySchema.safeParse(json);
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    return serverError("Invalid payload", 400);
   }
 
   const supabase = await createRouteHandlerClient(request);
@@ -38,10 +39,7 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (uErr || !userRow?.stripe_connect_account_id) {
-    return NextResponse.json(
-      { error: "Connect Stripe first via /api/stripe/connect" },
-      { status: 400 }
-    );
+    return serverError("Connect Stripe first via /api/stripe/connect", 400);
   }
 
   const { data: inv, error: invErr } = await supabase
@@ -52,7 +50,7 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (invErr || !inv || inv.status === "paid") {
-    return NextResponse.json({ error: "Invoice not found or already paid" }, { status: 404 });
+    return notFound("Invoice not found or already paid");
   }
 
   const { data: settings } = await supabase
@@ -85,6 +83,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ url });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Checkout failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return serverError(message);
   }
 }

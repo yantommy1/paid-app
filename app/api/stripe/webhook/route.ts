@@ -1,4 +1,5 @@
 import { markInvoicePaidWithFees } from "@/lib/fees/mark-invoice-paid";
+import { serverError } from "@/lib/api/errors";
 import { getStripe } from "@/lib/stripe/connect";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { NextRequest, NextResponse } from "next/server";
@@ -10,7 +11,7 @@ export async function POST(request: NextRequest) {
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
 
   if (!sig || !secret) {
-    return NextResponse.json({ error: "Missing signature" }, { status: 400 });
+    return serverError("Missing signature", 400);
   }
 
   let event: Stripe.Event;
@@ -18,7 +19,7 @@ export async function POST(request: NextRequest) {
     event = getStripe().webhooks.constructEvent(raw, sig, secret);
   } catch (e) {
     const message = e instanceof Error ? e.message : "Invalid payload";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return serverError(message, 400);
   }
 
   const admin = createAdminClient();

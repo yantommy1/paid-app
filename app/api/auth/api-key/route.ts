@@ -1,4 +1,5 @@
 import { requireUser } from "@/lib/api/auth-context";
+import { serverError } from "@/lib/api/errors";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -20,7 +21,7 @@ export async function POST() {
   });
 
   if (insErr) {
-    return NextResponse.json({ error: insErr.message }, { status: 500 });
+    return serverError(insErr.message);
   }
 
   return NextResponse.json(
@@ -51,7 +52,7 @@ export async function GET(request: NextRequest) {
     .maybeSingle();
 
   if (qErr) {
-    return NextResponse.json({ error: qErr.message }, { status: 500 });
+    return serverError(qErr.message);
   }
 
   const wantsPlain =

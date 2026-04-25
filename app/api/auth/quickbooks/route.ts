@@ -1,3 +1,4 @@
+import { serverError, unauthorized } from "@/lib/api/errors";
 import { requireUserFromRequest } from "@/lib/api/require-user-request";
 import { getAppUrl } from "@/lib/env/app-url";
 import { isSafeInternalPath } from "@/lib/http/safe-internal-path";
@@ -15,7 +16,7 @@ export async function GET(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return unauthorized();
   }
 
   const url = new URL(request.url);
@@ -25,7 +26,7 @@ export async function GET(request: NextRequest) {
   const error = url.searchParams.get("error");
 
   if (error) {
-    return NextResponse.json({ error }, { status: 400 });
+    return serverError(String(error), 400);
   }
 
   if (!code) {
@@ -60,7 +61,7 @@ export async function GET(request: NextRequest) {
   const cookieStore = await cookies();
   const expected = cookieStore.get("qb_oauth_state")?.value;
   if (!state || expected !== state) {
-    return NextResponse.json({ error: "Invalid OAuth state" }, { status: 400 });
+    return serverError("Invalid OAuth state", 400);
   }
   cookieStore.delete("qb_oauth_state");
 
@@ -121,6 +122,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         error: "Token exchange failed",
+        code: "SERVER_ERROR",
         message:
           (intuitDescription ?? intuitError ?? responseBodyText) ||
           tokenRes.statusText,
@@ -153,6 +155,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         error: "Token response was not valid JSON",
+        code: "SERVER_ERROR",
         ...diagnostic,
       },
       { status: 502 }
@@ -170,7 +173,10 @@ export async function GET(request: NextRequest) {
 
   if (!qbToken.realm_id) {
     return NextResponse.json(
-      { error: "Missing realmId (QuickBooks company). Reconnect from QuickBooks." },
+      {
+        error: "Missing realmId (QuickBooks company). Reconnect from QuickBooks.",
+        code: "SERVER_ERROR",
+      },
       { status: 400 }
     );
   }
@@ -182,7 +188,7 @@ export async function GET(request: NextRequest) {
     .eq("id", user.id);
 
   if (upErr) {
-    return NextResponse.json({ error: upErr.message }, { status: 500 });
+    return serverError(upErr.message);
   }
 
   const cookieStoreAfter = await cookies();
@@ -208,7 +214,7 @@ export async function DELETE(request: NextRequest) {
     .eq("id", ctx.user.id);
 
   if (upErr) {
-    return NextResponse.json({ error: upErr.message }, { status: 500 });
+    return serverError(upErr.message);
   }
 
   return NextResponse.json({ ok: true });

@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { NextResponse } from "next/server";
+import { unauthorized } from "@/lib/api/errors";
 import { getUserFromRequest } from "@/lib/api/get-user";
 
 export async function requireUserFromRequest(request: NextRequest) {
@@ -7,10 +7,7 @@ export async function requireUserFromRequest(request: NextRequest) {
   if (!user) {
     return {
       user: null,
-      response: NextResponse.json(
-        { error: error ?? "Unauthorized" },
-        { status: 401 }
-      ),
+      response: unauthorized(error ?? "Unauthorized"),
     };
   }
   return { user, response: null };

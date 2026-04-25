@@ -1,4 +1,5 @@
 import { draftReminderEmail } from "@/lib/anthropic/draft";
+import { notFound, serverError } from "@/lib/api/errors";
 import { requireUserFromRequest } from "@/lib/api/require-user-request";
 import { sendGmailMessage } from "@/lib/gmail/send";
 import { ensureGmailToken } from "@/lib/oauth/tokens";
@@ -23,12 +24,12 @@ export async function POST(request: NextRequest) {
   try {
     json = await request.json();
   } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    return serverError("Invalid JSON", 400);
   }
 
   const parsed = BodySchema.safeParse(json);
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    return serverError("Invalid payload", 400);
   }
 
   const supabase = await createRouteHandlerClient(request);
@@ -40,7 +41,7 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (error || !inv) {
-    return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
+    return notFound("Invoice not found");
   }
 
   const { data: userRow } = await supabase
@@ -52,10 +53,7 @@ export async function POST(request: NextRequest) {
   const gmailToken = userRow?.gmail_token as unknown as GmailToken | null;
   const fresh = await ensureGmailToken(gmailToken);
   if (!fresh) {
-    return NextResponse.json(
-      { error: "Gmail not connected or token expired — reconnect." },
-      { status: 400 }
-    );
+    return serverError("Gmail not connected or token expired — reconnect.", 400);
   }
 
   const admin = createAdminClient();
@@ -113,6 +111,6 @@ export async function POST(request: NextRequest) {
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Send failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return serverError(message);
   }
 }

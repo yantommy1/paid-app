@@ -75,6 +75,7 @@ export function OverdueInvoicesPanel() {
   const [listError, setListError] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, DraftState>>({});
   const [sendingId, setSendingId] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
 
   const loadInvoices = useCallback(async () => {
     setLoading(true);
@@ -195,41 +196,71 @@ export function OverdueInvoicesPanel() {
     }
   }
 
+  async function syncInvoices() {
+    setSyncing(true);
+    try {
+      const res = await fetch("/api/invoices/sync", { method: "POST" });
+      if (!res.ok) {
+        const j = (await res.json()) as { error?: string };
+        setListError(j.error ?? "Sync failed.");
+        return;
+      }
+      await loadInvoices();
+    } catch {
+      setListError("Sync failed.");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   if (loading) {
     return (
-      <section className="rounded-2xl border border-white/15 bg-white/5 p-6">
-        <p className="text-sm text-[#D1D5DB]">Loading overdue invoices...</p>
+      <section className="rounded-2xl border border-[#E5E5E5] bg-[#F7F7F5] p-6">
+        <p className="text-sm text-[#6B6B6B]">Loading overdue invoices...</p>
       </section>
     );
   }
 
   if (listError) {
     return (
-      <section className="rounded-2xl border border-red-400/40 bg-red-900/20 p-6">
-        <p className="text-sm text-red-200">{listError}</p>
+      <section className="rounded-2xl border border-[#E5E5E5] bg-white p-6">
+        <p className="text-sm text-red-600">{listError}</p>
       </section>
     );
   }
 
   if (invoices.length === 0) {
     return (
-      <section className="rounded-2xl border border-white/15 bg-white/5 p-6">
-        <h2 className="font-display text-2xl text-white">Overdue invoices</h2>
-        <p className="mt-2 text-sm text-[#C8CDD3]">No overdue invoices right now.</p>
+      <section className="rounded-2xl border border-[#E5E5E5] bg-white p-6">
+        <h2 className="font-display text-2xl text-[#0D0D0D]">Overdue invoices</h2>
+        <p className="mt-2 text-sm text-[#6B6B6B]">No overdue invoices right now.</p>
       </section>
     );
   }
 
   return (
     <section className="space-y-8">
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => void syncInvoices()}
+          disabled={syncing}
+          className="rounded bg-[#1B4332] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+        >
+          {syncing ? "Syncing..." : "Sync now"}
+        </button>
+      </div>
       {cohortData.map((cohort) => {
         if (cohort.invoices.length === 0) return null;
 
         return (
-          <article key={cohort.id} className="rounded-2xl border border-white/15 bg-white/5 p-6">
-            <div className="mb-5 border-b border-white/10 pb-4">
-              <h2 className="font-display text-3xl text-white">{cohort.title}</h2>
-              <p className="mt-2 text-sm text-[#C8CDD3]">{cohort.subtitle}</p>
+          <article key={cohort.id} className="rounded-2xl border border-[#E5E5E5] bg-white p-6">
+            <div className="mb-5 border-b border-[#E5E5E5] pb-4">
+              <div className="flex items-center gap-3">
+                <span className="h-7 w-1.5 bg-[#1B4332]" aria-hidden />
+                <h2 className="font-display text-3xl text-[#0D0D0D]">{cohort.title}</h2>
+              </div>
+              <p className="mt-2 text-sm text-[#6B6B6B]">{cohort.subtitle}</p>
             </div>
 
             <ul className="space-y-5">
@@ -237,19 +268,32 @@ export function OverdueInvoicesPanel() {
                 const draft = drafts[inv.id] ?? { status: "idle" as const };
                 const sent = reminderAlreadySent(inv);
                 return (
-                  <li key={inv.id} className="rounded-xl border border-white/10 bg-black/15 p-4">
+                  <li key={inv.id} className="rounded-xl border border-[#E5E5E5] bg-white p-4">
                     <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                       <div>
-                        <p className="text-base font-semibold text-white">{inv.client_name}</p>
-                        <p className="mt-1 text-sm text-[#C8CDD3]">
-                          Invoice #{inv.quickbooks_invoice_id} - {inv.days_overdue} days overdue
+                        <p className="text-base font-semibold text-[#0D0D0D]">{inv.client_name}</p>
+                        <p className="mt-1 text-sm text-[#6B6B6B]">
+                          Invoice #{inv.quickbooks_invoice_id}
                         </p>
-                        <p className="mt-1 text-sm text-[#E7E7E7]">
+                        <p className="mt-1 text-sm text-[#0D0D0D]">
                           ${formatMoney(Number(inv.amount))} - {inv.status.replace(/_/g, " ")}
                         </p>
-                        <p className="mt-1 text-xs text-[#B9C0C8]">To: {inv.client_email}</p>
+                        <p className="mt-1 text-xs text-[#6B6B6B]">To: {inv.client_email}</p>
+                        <span
+                          className={`mt-2 inline-flex rounded px-2 py-1 text-xs font-medium ${
+                            inv.days_overdue >= 90
+                              ? "bg-red-100 text-red-700"
+                              : inv.days_overdue >= 60
+                                ? "bg-orange-100 text-orange-700"
+                                : inv.days_overdue >= 30
+                                  ? "bg-yellow-100 text-yellow-700"
+                                  : "bg-green-100 text-green-700"
+                          }`}
+                        >
+                          {inv.days_overdue} days overdue
+                        </span>
                         {sent && (
-                          <p className="mt-2 text-xs text-emerald-300">
+                          <p className="mt-2 text-xs text-[#1B4332]">
                             Reminder sent
                             {inv.reminder_sent_at
                               ? ` on ${formatSentAt(inv.reminder_sent_at)}`
@@ -263,7 +307,7 @@ export function OverdueInvoicesPanel() {
                           type="button"
                           onClick={() => void draftReminder(inv.id)}
                           disabled={draft.status === "loading"}
-                          className="shrink-0 rounded-md border border-[#1B4332] bg-[#1B4332]/20 px-4 py-2 text-sm font-medium text-[#D7ECE2] hover:bg-[#1B4332]/35 disabled:opacity-60"
+                          className="shrink-0 rounded-md border border-[#1B4332] bg-white px-4 py-2 text-sm font-medium text-[#1B4332] hover:bg-[#F7F7F5] disabled:opacity-60"
                         >
                           {draft.status === "loading" ? "Drafting..." : "Draft Reminder"}
                         </button>
@@ -271,11 +315,11 @@ export function OverdueInvoicesPanel() {
                     </div>
 
                     {draft.status === "ok" && !sent && (
-                      <div className="mt-4 rounded-lg border border-[#1B4332]/50 bg-[#0F1915] p-4">
-                        <p className="text-xs uppercase tracking-[0.15em] text-[#8FB39F]">Subject</p>
-                        <p className="mt-1 text-sm font-medium text-white">{draft.subject}</p>
-                        <p className="mt-4 text-xs uppercase tracking-[0.15em] text-[#8FB39F]">Body</p>
-                        <pre className="mt-2 whitespace-pre-wrap font-sans text-sm text-[#E6ECE8]">
+                      <div className="mt-4 rounded-lg border border-[#E5E5E5] bg-[#F7F7F5] p-4">
+                        <p className="text-xs uppercase tracking-[0.15em] text-[#6B6B6B]">Subject</p>
+                        <p className="mt-1 text-sm font-medium text-[#0D0D0D]">{draft.subject}</p>
+                        <p className="mt-4 text-xs uppercase tracking-[0.15em] text-[#6B6B6B]">Body</p>
+                        <pre className="mt-2 whitespace-pre-wrap font-sans text-sm text-[#0D0D0D]">
                           {draft.body}
                         </pre>
                         <button
@@ -284,18 +328,18 @@ export function OverdueInvoicesPanel() {
                           disabled={sendingId === inv.id}
                           className="mt-4 rounded-md bg-[#1B4332] px-4 py-2 text-sm font-semibold text-white hover:bg-[#245941] disabled:opacity-60"
                         >
-                          {sendingId === inv.id ? "Sending..." : "Send Reminder"}
+                          {sendingId === inv.id ? "Sending..." : "Send Now"}
                         </button>
                       </div>
                     )}
 
                     {draft.status === "error" && (
-                      <p className="mt-3 text-sm text-red-300" role="alert">
+                      <p className="mt-3 text-sm text-red-600" role="alert">
                         {draft.message}
                       </p>
                     )}
                     {draft.status === "sent" && (
-                      <p className="mt-3 text-sm text-emerald-300" role="status">
+                      <p className="mt-3 text-sm text-[#1B4332]" role="status">
                         {draft.message}
                       </p>
                     )}

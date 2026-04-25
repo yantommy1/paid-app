@@ -12,10 +12,11 @@
  */
 
 /** Deployed add-on version (bump when publishing a new deployment). */
-var PAID_VERSION = '1.0.0';
+var VERSION = '1.0.1';
 
 var PROP_API = 'PAID_API_BASE';
 var PROP_API_KEY = 'PAID_API_KEY';
+var PROP_API_KEY_EXPIRES_AT = 'PAID_API_KEY_EXPIRES_AT';
 
 /** Cohort dot swatches (Linear-style accents) */
 var DOT_90 = 'https://placehold.co/10x10/dc2626/dc2626.png';
@@ -45,7 +46,10 @@ function onSavePaidSettings(e) {
   var base = getFormText_(form, 'api_base');
   var apiKey = getFormText_(form, 'api_key');
   if (base) PropertiesService.getUserProperties().setProperty(PROP_API, trimSlash_(base));
-  if (apiKey) PropertiesService.getUserProperties().setProperty(PROP_API_KEY, apiKey.trim());
+  if (apiKey) {
+    PropertiesService.getUserProperties().setProperty(PROP_API_KEY, apiKey.trim());
+    setApiKeyExpiry_(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  }
   return CardService.newActionResponseBuilder()
     .setNavigation(CardService.newNavigation().updateCard(buildHomePage_(e)))
     .build();
@@ -56,6 +60,13 @@ function clearPaidSettings() {
   var p = PropertiesService.getUserProperties();
   p.deleteProperty(PROP_API);
   p.deleteProperty(PROP_API_KEY);
+  p.deleteProperty(PROP_API_KEY_EXPIRES_AT);
+  var all = p.getProperties();
+  Object.keys(all).forEach(function (k) {
+    if (k.indexOf('paid_reminder_draft_') === 0) {
+      p.deleteProperty(k);
+    }
+  });
 }
 
 /**
@@ -92,6 +103,17 @@ function onDraftReminder(e) {
       .setNotification(CardService.newNotification().setText('Reminder drafted. Review below.'))
       .build();
   } catch (err) {
+    if (err && err.name === 'PaidAuthReconnectError') {
+      return CardService.newActionResponseBuilder()
+        .setNavigation(
+          CardService.newNavigation().updateCard(
+            buildReconnectCard_(
+              'Your connection expired. Enter your API key below to reconnect.'
+            )
+          )
+        )
+        .build();
+    }
     return CardService.newActionResponseBuilder()
       .setNavigation(
         CardService.newNavigation().updateCard(
@@ -174,6 +196,17 @@ function onSendReminder(e) {
       )
       .build();
   } catch (err) {
+    if (err && err.name === 'PaidAuthReconnectError') {
+      return CardService.newActionResponseBuilder()
+        .setNavigation(
+          CardService.newNavigation().updateCard(
+            buildReconnectCard_(
+              'Your connection expired. Enter your API key below to reconnect.'
+            )
+          )
+        )
+        .build();
+    }
     return CardService.newActionResponseBuilder()
       .setNavigation(
         CardService.newNavigation().updateCard(
@@ -204,6 +237,17 @@ function onQueueAllReminders(e) {
       .setNavigation(CardService.newNavigation().pushCard(buildReviewQueueCard_(queue)))
       .build();
   } catch (err) {
+    if (err && err.name === 'PaidAuthReconnectError') {
+      return CardService.newActionResponseBuilder()
+        .setNavigation(
+          CardService.newNavigation().updateCard(
+            buildReconnectCard_(
+              'Your connection expired. Enter your API key below to reconnect.'
+            )
+          )
+        )
+        .build();
+    }
     return CardService.newActionResponseBuilder()
       .setNavigation(
         CardService.newNavigation().updateCard(
@@ -460,30 +504,8 @@ function appendInvoiceBlock_(section, row, withDivider) {
  * merge GET /api/invoices/summary + GET /api/invoices (same shape as gmail-sidebar).
  */
 function fetchGmailSidebarPack_() {
-  var primary = paidFetch_('/api/invoices/gmail-sidebar', { method: 'get' });
-  if (primary.statusCode === 200) {
-    return { ok: true, data: JSON.parse(primary.body) };
-  }
-  if (primary.statusCode === 404) {
-    var sum = paidFetch_('/api/invoices/summary', { method: 'get' });
-    var inv = paidFetch_('/api/invoices', { method: 'get' });
-    if (sum.statusCode !== 200) {
-      return { ok: false, statusCode: sum.statusCode, body: sum.body };
-    }
-    if (inv.statusCode !== 200) {
-      return { ok: false, statusCode: inv.statusCode, body: inv.body };
-    }
-    var s = JSON.parse(sum.body);
-    var i = JSON.parse(inv.body);
-    return {
-      ok: true,
-      data: {
-        cohorts: s.cohorts || {},
-        header: s.header || {},
-        invoices: i.invoices || [],
-      },
-    };
-  }
+  var primary = paidFetch_('/api/invoices/gmail-sidebar', { method: 'get' }, 'gmail-sidebar');
+  if (primary.statusCode === 200) return { ok: true, data: JSON.parse(primary.body) };
   return { ok: false, statusCode: primary.statusCode, body: primary.body };
 }
 
@@ -492,15 +514,30 @@ function buildHomePage_(e) {
 
   if (!getApiKey_() || !getApiBase_()) {
     return card
-      .setHeader(CardService.newCardHeader().setTitle('Paid').setSubtitle('Connect to continue'))
+      .setHeader(CardService.newCardHeader().setTitle('Paid').setSubtitle('Connect to continue - v' + VERSION))
       .addSection(buildSettingsSection_())
       .build();
   }
 
   try {
+    try {
+      checkHealth_();
+    } catch (healthErr) {
+      return buildDiagnosticCard_(
+        'health',
+        'network',
+        'Cannot reach Paid servers. Check your internet connection.',
+        'onRefreshHome'
+      );
+    }
+
+    maybeProactiveRefresh_();
+
     var pack = fetchGmailSidebarPack_();
     if (!pack.ok) {
-      return buildNotifyCard_(
+      return buildDiagnosticCard_(
+        'gmail-sidebar',
+        classifyErrorKind_(pack.statusCode, pack.body),
         userFacingApiError_(pack.statusCode, pack.body),
         'onRefreshHome'
       );
@@ -514,7 +551,7 @@ function buildHomePage_(e) {
     card.setHeader(
       CardService.newCardHeader()
         .setTitle('Paid')
-        .setSubtitle(formatHeaderLine_(header))
+        .setSubtitle(formatHeaderLine_(header) + ' - v' + VERSION)
     );
 
     var cohortSec = CardService.newCardSection();
@@ -579,8 +616,15 @@ function buildHomePage_(e) {
 
     return card.build();
   } catch (err) {
-    return buildNotifyCard_(
-      'Could not load Paid. Try again in a moment.',
+    if (err && err.name === 'PaidAuthReconnectError') {
+      return buildReconnectCard_(
+        'Your connection expired. Enter your API key below to reconnect.'
+      );
+    }
+    return buildDiagnosticCard_(
+      'home',
+      'network',
+      'Home load failed due to a network error.',
       'onRefreshHome'
     );
   }
@@ -607,7 +651,7 @@ function onBackHome(e) {
 
 function buildSettingsCard_(e) {
   return CardService.newCardBuilder()
-    .setHeader(CardService.newCardHeader().setTitle('Paid').setSubtitle('Connection'))
+    .setHeader(CardService.newCardHeader().setTitle('Paid').setSubtitle('Connection - v' + VERSION))
     .addSection(buildSettingsSection_())
     .addCardAction(
       CardService.newCardAction()
@@ -618,10 +662,18 @@ function buildSettingsCard_(e) {
 }
 
 function buildSettingsSection_() {
-  return CardService.newCardSection()
+  var section = CardService.newCardSection()
     .addWidget(
       CardService.newTextParagraph().setText(
         'Sign in at paid-app.com, then go to paid-app.com/api/auth/api-key to get your key.'
+      )
+    )
+    .addWidget(
+      CardService.newButtonSet().addButton(
+        CardService.newTextButton()
+          .setText('Open key page')
+          .setTextButtonStyle(CardService.TextButtonStyle.TEXT)
+          .setOpenLink(CardService.newOpenLink().setUrl('https://paid-app.com/api/auth/api-key'))
       )
     )
     .addWidget(CardService.newDivider())
@@ -642,6 +694,13 @@ function buildSettingsSection_() {
           .setOnClickAction(CardService.newAction().setFunctionName('onSavePaidSettings'))
       )
     );
+  return section;
+}
+
+function onReconnectFromError(e) {
+  return CardService.newActionResponseBuilder()
+    .setNavigation(CardService.newNavigation().updateCard(buildSettingsCard_(e)))
+    .build();
 }
 
 function buildContextualForMessage_(e) {
@@ -784,6 +843,11 @@ function buildCardsForEmails_(emails, contextualRefreshFn) {
       });
       builder.addSection(sec);
     } catch (err) {
+      if (err && err.name === 'PaidAuthReconnectError') {
+        return buildReconnectCard_(
+          'Your connection expired. Enter your API key below to reconnect.'
+        );
+      }
       var errSec = CardService.newCardSection();
       errSec.addWidget(
         CardService.newTextParagraph().setText(
@@ -808,6 +872,11 @@ function buildCardsForEmails_(emails, contextualRefreshFn) {
 
   return builder.build();
   } catch (outerErr) {
+    if (outerErr && outerErr.name === 'PaidAuthReconnectError') {
+      return buildReconnectCard_(
+        'Your connection expired. Enter your API key below to reconnect.'
+      );
+    }
     return buildNotifyCard_(
       'Could not load invoice data for this view. Try again.',
       contextualRefreshFn || 'onRefreshContextualMessage'
@@ -911,7 +980,17 @@ function userFacingApiError_(statusCode, body) {
   return 'Could not connect to Paid. Check your API key and try again.';
 }
 
-function paidFetch_(path, opts) {
+function classifyErrorKind_(statusCode, body) {
+  var c = Number(statusCode) || 0;
+  if (c === 401 || c === 403) return 'auth';
+  return 'network';
+}
+
+function paidFetch_(path, opts, stepName) {
+  return paidFetchWithRecovery_(path, opts, false, stepName || path);
+}
+
+function paidFetchWithRecovery_(path, opts, didRetry, stepName) {
   var base = getApiBase_();
   var apiKey = getApiKey_();
   if (!base || !apiKey) throw new Error('Configure PAID_API_BASE and PAID_API_KEY');
@@ -926,11 +1005,150 @@ function paidFetch_(path, opts) {
     timeout: 10000,
   };
   if (opts.payload) params.payload = opts.payload;
-  var resp = UrlFetchApp.fetch(url, params);
-  return {
+  var resp;
+  try {
+    resp = UrlFetchApp.fetch(url, params);
+  } catch (err) {
+    var networkError = new Error('Network error during ' + stepName);
+    networkError.name = 'PaidNetworkError';
+    throw networkError;
+  }
+  var result = {
     statusCode: resp.getResponseCode(),
     body: resp.getContentText(),
   };
+
+  if (result.statusCode === 401 && !didRetry) {
+    if (refreshApiKey_()) {
+      return paidFetchWithRecovery_(path, opts, true, stepName);
+    }
+    var reconnectErr = new Error('API key refresh failed');
+    reconnectErr.name = 'PaidAuthReconnectError';
+    throw reconnectErr;
+  }
+  return result;
+}
+
+function checkHealth_() {
+  var base = getApiBase_();
+  if (!base) throw new Error('Missing API base URL');
+  var resp = UrlFetchApp.fetch(base + '/api/health', {
+    method: 'get',
+    muteHttpExceptions: true,
+    timeout: 8000,
+  });
+  if (resp.getResponseCode() < 200 || resp.getResponseCode() >= 300) {
+    throw new Error('Health check failed');
+  }
+}
+
+function refreshApiKey_() {
+  var base = getApiBase_();
+  var key = getApiKey_();
+  if (!base || !key) return false;
+  var resp = UrlFetchApp.fetch(base + '/api/auth/api-key/refresh', {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { Authorization: 'Bearer ' + key },
+    payload: '{}',
+    muteHttpExceptions: true,
+    timeout: 10000,
+  });
+  if (resp.getResponseCode() < 200 || resp.getResponseCode() >= 300) {
+    return false;
+  }
+  try {
+    var j = JSON.parse(resp.getContentText());
+    if (!j.api_key) return false;
+    PropertiesService.getUserProperties().setProperty(PROP_API_KEY, String(j.api_key));
+    setApiKeyExpiry_(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+function setApiKeyExpiry_(ts) {
+  PropertiesService.getUserProperties().setProperty(PROP_API_KEY_EXPIRES_AT, String(ts));
+}
+
+function getApiKeyExpiry_() {
+  var raw = PropertiesService.getUserProperties().getProperty(PROP_API_KEY_EXPIRES_AT) || '';
+  var n = Number(raw);
+  return isNaN(n) ? 0 : n;
+}
+
+function maybeProactiveRefresh_() {
+  var exp = getApiKeyExpiry_();
+  if (!exp) return;
+  var threeDays = 3 * 24 * 60 * 60 * 1000;
+  if (Date.now() >= exp - threeDays) {
+    refreshApiKey_();
+  }
+}
+
+function buildReconnectCard_(message) {
+  var card = CardService.newCardBuilder().setHeader(
+    CardService.newCardHeader().setTitle('Paid').setSubtitle('Reconnect required - v' + VERSION)
+  );
+  card.addSection(
+    CardService.newCardSection()
+      .addWidget(CardService.newTextParagraph().setText(message))
+      .addWidget(
+        CardService.newButtonSet()
+          .addButton(
+            CardService.newTextButton()
+              .setText('Reconnect')
+              .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+              .setOnClickAction(CardService.newAction().setFunctionName('onReconnectFromError'))
+          )
+          .addButton(
+            CardService.newTextButton()
+              .setText('Key page')
+              .setTextButtonStyle(CardService.TextButtonStyle.TEXT)
+              .setOpenLink(CardService.newOpenLink().setUrl('https://paid-app.com/api/auth/api-key'))
+          )
+      )
+  );
+  return card.build();
+}
+
+function buildDiagnosticCard_(step, kind, msg, refreshFunctionName) {
+  if (kind === 'auth') {
+    return buildReconnectCard_(
+      'Your connection expired. Enter your API key below to reconnect.'
+    );
+  }
+  var details =
+    'Step: ' +
+    step +
+    '\nType: ' +
+    (kind === 'auth' ? 'auth error' : 'network error') +
+    '\n' +
+    msg;
+  var card = CardService.newCardBuilder().setHeader(
+    CardService.newCardHeader().setTitle('Paid').setSubtitle('Diagnostics - v' + VERSION)
+  );
+  card.addSection(
+    CardService.newCardSection()
+      .addWidget(CardService.newTextParagraph().setText(details))
+      .addWidget(
+        CardService.newButtonSet()
+          .addButton(
+            CardService.newTextButton()
+              .setText('Reconnect')
+              .setOnClickAction(CardService.newAction().setFunctionName('onReconnectFromError'))
+          )
+          .addButton(
+            CardService.newTextButton()
+              .setText('Refresh')
+              .setOnClickAction(
+                CardService.newAction().setFunctionName(refreshFunctionName || 'onRefreshHome')
+              )
+          )
+      )
+  );
+  return card.build();
 }
 
 function getApiBase_() {

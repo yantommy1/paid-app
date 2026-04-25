@@ -1,3 +1,4 @@
+import { serverError } from "@/lib/api/errors";
 import { requireUserFromRequest } from "@/lib/api/require-user-request";
 import { createRouteHandlerClient } from "@/lib/supabase/route-client";
 import { NextRequest, NextResponse } from "next/server";
@@ -18,12 +19,12 @@ export async function PATCH(request: NextRequest) {
   try {
     json = await request.json();
   } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    return serverError("Invalid JSON", 400);
   }
 
   const parsed = PatchSchema.safeParse(json);
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    return serverError("Invalid payload", 400);
   }
 
   const supabase = await createRouteHandlerClient(request);
@@ -33,7 +34,7 @@ export async function PATCH(request: NextRequest) {
     .eq("user_id", ctx.user.id);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error.message);
   }
 
   return NextResponse.json({ ok: true });

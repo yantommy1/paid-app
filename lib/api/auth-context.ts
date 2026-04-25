@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { unauthorized } from "@/lib/api/errors";
 import type { User } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 
@@ -13,7 +14,7 @@ export async function requireUser(): Promise<
   if (error || !user) {
     return {
       user: null,
-      error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
+      error: unauthorized(),
     };
   }
   return { user, error: null };

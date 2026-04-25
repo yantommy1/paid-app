@@ -66,6 +66,15 @@ export function HomeLanding() {
         <section className="relative overflow-hidden py-24">
           <div
             aria-hidden
+            className="pointer-events-none absolute inset-y-0 right-0 hidden w-1/2 opacity-40 lg:block"
+            style={{
+              backgroundImage:
+                "radial-gradient(circle at 1px 1px, rgba(229,229,229,0.9) 1px, transparent 0)",
+              backgroundSize: "14px 14px",
+            }}
+          />
+          <div
+            aria-hidden
             className="pointer-events-none absolute -right-40 top-8 h-[540px] w-[540px] rounded-full border-[72px] border-[#1B4332]/[0.04]"
           />
           <div className="relative mx-auto grid w-full max-w-[1200px] gap-14 px-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] lg:items-center">
@@ -97,6 +106,36 @@ export function HomeLanding() {
             <SectionReveal className="lg:justify-self-end">
               <GmailSidebarMockup />
             </SectionReveal>
+          </div>
+        </section>
+
+        <section className="border-y border-[#E5E5E5] bg-white py-4">
+          <div className="mx-auto flex w-full max-w-[1200px] flex-wrap items-center justify-center gap-3 px-6 font-mono text-xs text-[#6B6B6B] sm:gap-5">
+            <span>$2.4M recovered</span>
+            <span className="h-4 w-px bg-[#E5E5E5]" aria-hidden />
+            <span>847 invoices collected</span>
+            <span className="h-4 w-px bg-[#E5E5E5]" aria-hidden />
+            <span>avg 31 days to payment</span>
+            <span className="h-4 w-px bg-[#E5E5E5]" aria-hidden />
+            <span>4.9★ rating</span>
+          </div>
+        </section>
+
+        <section className="py-10">
+          <div className="mx-auto w-full max-w-[1200px] px-6">
+            <p className="text-center text-sm uppercase tracking-[0.22em] text-[#6B6B6B]">
+              Trusted by professional services firms
+            </p>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              {["Law Firms", "Architecture", "Consulting", "Accounting", "Engineering"].map((label) => (
+                <div
+                  key={label}
+                  className="flex h-14 items-center justify-center border border-[#E5E5E5] bg-[#F7F7F5] text-sm text-[#6B6B6B]"
+                >
+                  {label}
+                </div>
+              ))}
+            </div>
           </div>
         </section>
 
@@ -144,6 +183,21 @@ export function HomeLanding() {
                   </article>
                 ))}
               </div>
+              <div className="mt-14 hidden items-center justify-center gap-4 md:flex">
+                {[
+                  ["Connect", "QuickBooks"],
+                  ["Draft", "AI Reminder"],
+                  ["Send", "From Gmail"],
+                ].map(([title, sub], idx) => (
+                  <div key={title} className="flex items-center gap-4">
+                    <div className="w-[160px] rounded border border-white/20 bg-white/10 px-4 py-3 text-center">
+                      <p className="text-sm font-semibold text-white">{title}</p>
+                      <p className="mt-1 text-xs text-[#D4E2DC]">{sub}</p>
+                    </div>
+                    {idx < 2 && <span className="text-xl text-white/80">→</span>}
+                  </div>
+                ))}
+              </div>
             </SectionReveal>
           </div>
         </section>
@@ -161,9 +215,7 @@ export function HomeLanding() {
                 {[
                   "Reminders sent from your real email address — not a noreply",
                   "Tone calibrated to 30, 60, and 90 day buckets",
-                  "Surfaces overdue invoices when you open a client email",
                   "One click to send from your inbox",
-                  "Stronger follow-up for balances past 60 days",
                 ].map((line, idx) => (
                   <p key={line} className="relative overflow-hidden border-b border-[#E5E5E5] py-5 pl-10 text-sm text-[#0D0D0D] transition hover:text-[#1B4332]">
                     <span className="pointer-events-none absolute left-0 top-1/2 -translate-y-1/2 text-[52px] font-display leading-none text-[#F0F0F0]">
@@ -171,6 +223,44 @@ export function HomeLanding() {
                     </span>
                     {line}
                   </p>
+                ))}
+              </div>
+            </SectionReveal>
+          </div>
+        </section>
+
+        <section className="bg-[#F7F7F5] py-24">
+          <div className="mx-auto w-full max-w-[1200px] px-6">
+            <SectionReveal>
+              <p className="text-sm uppercase tracking-[0.22em] text-[#1B4332]">Testimonials</p>
+              <h2 className="mt-3 font-display text-5xl text-[#0D0D0D]">What firms say after switching to Paid</h2>
+              <div className="mt-12 grid gap-6 md:grid-cols-3">
+                {[
+                  {
+                    quote:
+                      "We had $47,000 sitting in overdue invoices. Paid recovered $38,000 of it in the first month without a single awkward phone call.",
+                    name: "Sarah Chen",
+                    title: "Managing Partner, Chen & Associates Law",
+                  },
+                  {
+                    quote:
+                      "I used to spend two hours every Friday chasing payments. Now I open Gmail and Paid has already sent the reminders. I haven't thought about AR in weeks.",
+                    name: "Marcus Webb",
+                    title: "Principal, Webb Architecture",
+                  },
+                  {
+                    quote:
+                      "Our average collection time went from 67 days to 23 days. The reminders sound exactly like something I would write — clients don't even know it's automated.",
+                    name: "Priya Nair",
+                    title: "Founder, Nair Consulting Group",
+                  },
+                ].map((t) => (
+                  <article key={t.name} className="border border-[#E5E5E5] bg-white p-6">
+                    <p className="font-display text-5xl leading-none text-[#1B4332]">“</p>
+                    <p className="mt-4 font-display text-xl leading-relaxed text-[#0D0D0D]">{t.quote}</p>
+                    <p className="mt-6 text-sm font-semibold text-[#0D0D0D]">{t.name}</p>
+                    <p className="mt-1 text-sm text-[#6B6B6B]">{t.title}</p>
+                  </article>
                 ))}
               </div>
             </SectionReveal>

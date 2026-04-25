@@ -7,11 +7,11 @@ export const metadata: Metadata = {
     "How Paid collects, uses, and protects data when you connect QuickBooks and Gmail.",
 };
 
-const section = "mt-12 border-t border-white/[0.08] pt-12 first:mt-0 first:border-0 first:pt-0";
-const h2 = "font-display text-2xl tracking-tight text-paid-mist";
-const h3 = "mt-8 font-semibold text-paid-mist";
-const p = "mt-4 text-sm leading-relaxed text-paid-mist/75";
-const ul = "mt-4 list-disc space-y-2 pl-5 text-sm leading-relaxed text-paid-mist/75";
+const section = "mt-12 border-t border-[#E5E5E5] pt-12 first:mt-0 first:border-0 first:pt-0";
+const h2 = "font-display text-2xl tracking-tight text-[#0D0D0D]";
+const h3 = "mt-8 font-semibold text-[#0D0D0D]";
+const p = "mt-4 text-sm leading-relaxed text-[#6B6B6B]";
+const ul = "mt-4 list-disc space-y-2 pl-5 text-sm leading-relaxed text-[#6B6B6B]";
 
 export default function PrivacyPage() {
   return (
@@ -46,14 +46,14 @@ export default function PrivacyPage() {
         </p>
         <ul className={ul}>
           <li>
-            <strong className="text-paid-mist/90">QuickBooks:</strong> We sync
+            <strong className="text-[#0D0D0D]">QuickBooks:</strong> We sync
             information about your open receivables, such as invoice amounts,
             due dates, customer or client names, contact details on file, line
             descriptions, and related identifiers needed to display balances
             and draft reminders.
           </li>
           <li>
-            <strong className="text-paid-mist/90">Gmail:</strong> We access your
+            <strong className="text-[#0D0D0D]">Gmail:</strong> We access your
             Google account only as described in the section below.
           </li>
         </ul>
@@ -244,7 +244,7 @@ export default function PrivacyPage() {
           contact us at{" "}
           <a
             href="mailto:privacy@paid-app.com"
-            className="text-[#00E5A0] underline decoration-[#00E5A0]/40 underline-offset-2 hover:decoration-[#00E5A0]"
+            className="text-[#1B4332] underline decoration-[#1B4332]/40 underline-offset-2 hover:decoration-[#1B4332]"
           >
             privacy@paid-app.com
           </a>

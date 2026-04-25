@@ -1,4 +1,5 @@
 import { computeCohorts, computeSidebarHeader } from "@/lib/invoices/sidebar-stats";
+import { serverError } from "@/lib/api/errors";
 import { requireUserFromRequest } from "@/lib/api/require-user-request";
 import { createRouteHandlerClient } from "@/lib/supabase/route-client";
 import { NextRequest, NextResponse } from "next/server";
@@ -20,7 +21,7 @@ export async function GET(request: NextRequest) {
     .order("days_overdue", { ascending: false });
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error.message);
   }
 
   const list = rows ?? [];
@@ -31,5 +32,6 @@ export async function GET(request: NextRequest) {
     cohorts,
     header,
     invoices: list,
+    user_email: ctx.user.email ?? "",
   });
 }

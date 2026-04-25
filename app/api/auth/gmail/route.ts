@@ -1,3 +1,4 @@
+import { serverError, unauthorized } from "@/lib/api/errors";
 import { requireUserFromRequest } from "@/lib/api/require-user-request";
 import { getAppUrl } from "@/lib/env/app-url";
 import { isSafeInternalPath } from "@/lib/http/safe-internal-path";
@@ -15,7 +16,7 @@ export async function GET(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return unauthorized();
   }
 
   const url = new URL(request.url);
@@ -24,7 +25,7 @@ export async function GET(request: NextRequest) {
   const error = url.searchParams.get("error");
 
   if (error) {
-    return NextResponse.json({ error }, { status: 400 });
+    return serverError(String(error), 400);
   }
 
   if (!code) {
@@ -64,7 +65,7 @@ export async function GET(request: NextRequest) {
   const cookieStore = await cookies();
   const expected = cookieStore.get("gmail_oauth_state")?.value;
   if (!state || expected !== state) {
-    return NextResponse.json({ error: "Invalid OAuth state" }, { status: 400 });
+    return serverError("Invalid OAuth state", 400);
   }
   cookieStore.delete("gmail_oauth_state");
 
@@ -84,7 +85,7 @@ export async function GET(request: NextRequest) {
   if (!tokenRes.ok) {
     const t = await tokenRes.text();
     return NextResponse.json(
-      { error: "Token exchange failed", detail: t },
+      { error: "Token exchange failed", code: "SERVER_ERROR", detail: t },
       { status: 400 }
     );
   }
@@ -106,6 +107,7 @@ export async function GET(request: NextRequest) {
       {
         error:
           "No refresh token returned. Revoke app access in Google Account settings and try again with prompt=consent.",
+        code: "SERVER_ERROR",
       },
       { status: 400 }
     );
@@ -118,7 +120,7 @@ export async function GET(request: NextRequest) {
     .eq("id", user.id);
 
   if (upErr) {
-    return NextResponse.json({ error: upErr.message }, { status: 500 });
+    return serverError(upErr.message);
   }
 
   const cookieStoreAfter = await cookies();
@@ -144,7 +146,7 @@ export async function DELETE(request: NextRequest) {
     .eq("id", ctx.user.id);
 
   if (upErr) {
-    return NextResponse.json({ error: upErr.message }, { status: 500 });
+    return serverError(upErr.message);
   }
 
   return NextResponse.json({ ok: true });

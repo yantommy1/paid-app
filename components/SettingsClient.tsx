@@ -27,11 +27,20 @@ export function SettingsClient({ email, quickbooksConnected: qbInitial, gmailCon
   const [gmBusy, setGmBusy] = useState(false);
   const [keyBusy, setKeyBusy] = useState(false);
   const [keyMessage, setKeyMessage] = useState<string | null>(null);
+  const [showKey, setShowKey] = useState(false);
+  const [apiKey, setApiKey] = useState<string | null>(null);
+  const [apiKeyCreatedAt, setApiKeyCreatedAt] = useState<string | null>(null);
+  const [healthBusy, setHealthBusy] = useState(false);
+  const [healthOk, setHealthOk] = useState<boolean | null>(null);
 
   useEffect(() => {
     setQbConn(qbInitial);
     setGmConn(gmInitial);
   }, [qbInitial, gmInitial]);
+
+  useEffect(() => {
+    void loadApiKey();
+  }, []);
 
   async function signOut() {
     const supabase = createClient();
@@ -74,17 +83,55 @@ export function SettingsClient({ email, quickbooksConnected: qbInitial, gmailCon
         setKeyMessage(j.error ?? "Could not generate a key. Try again.");
         return;
       }
-      try {
-        await navigator.clipboard.writeText(j.api_key);
-      } catch {
-        setKeyMessage("Key created but could not copy automatically.");
-        return;
-      }
-      setKeyMessage("Key copied to clipboard — paste it into the Paid sidebar in Gmail");
+      setApiKey(j.api_key);
+      setApiKeyCreatedAt(new Date().toISOString());
+      setShowKey(true);
+      setKeyMessage("New key generated. Update it in your Gmail Add-On settings.");
     } catch {
       setKeyMessage("Something went wrong. Try again.");
     } finally {
       setKeyBusy(false);
+    }
+  }
+
+  async function loadApiKey() {
+    try {
+      const res = await fetch("/api/auth/api-key", { method: "GET" });
+      const j = (await res.json()) as { api_key?: string | null; created_at?: string | null };
+      if (!res.ok) return;
+      setApiKey(j.api_key ?? null);
+      setApiKeyCreatedAt(j.created_at ?? null);
+    } catch {
+      // no-op; keep UI usable even if this fails
+    }
+  }
+
+  async function testConnection() {
+    setHealthBusy(true);
+    setHealthOk(null);
+    try {
+      const res = await fetch("/api/health", { method: "GET" });
+      setHealthOk(res.ok);
+    } catch {
+      setHealthOk(false);
+    } finally {
+      setHealthBusy(false);
+    }
+  }
+
+  function maskedKey(value: string | null): string {
+    if (!value) return "No key generated yet";
+    if (showKey) return value;
+    if (value.length <= 10) return "••••••••";
+    return `${value.slice(0, 6)}••••••••${value.slice(-4)}`;
+  }
+
+  function formatTime(iso: string | null): string {
+    if (!iso) return "Unknown";
+    try {
+      return new Date(iso).toLocaleString();
+    } catch {
+      return iso;
     }
   }
 
@@ -105,25 +152,25 @@ export function SettingsClient({ email, quickbooksConnected: qbInitial, gmailCon
         <div className="grid gap-6 md:grid-cols-2">
           <div className={cardClass}>
             <h3 className="font-display text-2xl">QuickBooks</h3>
-            <p className="mt-2 flex items-center gap-2 text-sm text-[#6B6B6B]"><StatusDot connected={qbConn} />{qbConn ? "Connected" : "Disconnected"}</p>
+            <p className={`mt-2 flex items-center gap-2 text-sm ${qbConn ? "text-[#1B4332]" : "text-[#6B6B6B]"}`}><StatusDot connected={qbConn} />{qbConn ? "Connected" : "Disconnected"}</p>
             {qbConn && quickbooksRealmId && <p className="mt-3 text-xs text-[#6B6B6B]">Company realm: {quickbooksRealmId}</p>}
             <div className="mt-6">
               {qbConn ? (
-                <button type="button" disabled={qbBusy} onClick={() => void disconnectQuickBooks()} className="border border-black px-4 py-2 text-sm">{qbBusy ? "Disconnecting..." : "Disconnect"}</button>
+                <button type="button" disabled={qbBusy} onClick={() => void disconnectQuickBooks()} className="border border-red-600 bg-white px-4 py-2 text-sm text-red-600">{qbBusy ? "Disconnecting..." : "Disconnect"}</button>
               ) : (
-                <a href="/api/auth/quickbooks?return_to=/settings" className="bg-black px-4 py-2 text-sm text-white">Connect QuickBooks</a>
+                <a href="/api/auth/quickbooks?return_to=/settings" className="bg-[#1B4332] px-4 py-2 text-sm text-white">Connect QuickBooks</a>
               )}
             </div>
           </div>
 
           <div className={cardClass}>
             <h3 className="font-display text-2xl">Gmail</h3>
-            <p className="mt-2 flex items-center gap-2 text-sm text-[#6B6B6B]"><StatusDot connected={gmConn} />{gmConn ? "Connected" : "Disconnected"}</p>
+            <p className={`mt-2 flex items-center gap-2 text-sm ${gmConn ? "text-[#1B4332]" : "text-[#6B6B6B]"}`}><StatusDot connected={gmConn} />{gmConn ? "Connected" : "Disconnected"}</p>
             <div className="mt-6">
               {gmConn ? (
-                <button type="button" disabled={gmBusy} onClick={() => void disconnectGmail()} className="border border-black px-4 py-2 text-sm">{gmBusy ? "Disconnecting..." : "Disconnect"}</button>
+                <button type="button" disabled={gmBusy} onClick={() => void disconnectGmail()} className="border border-red-600 bg-white px-4 py-2 text-sm text-red-600">{gmBusy ? "Disconnecting..." : "Disconnect"}</button>
               ) : (
-                <a href="/api/auth/gmail?return_to=/settings" className="bg-black px-4 py-2 text-sm text-white">Connect Gmail</a>
+                <a href="/api/auth/gmail?return_to=/settings" className="bg-[#1B4332] px-4 py-2 text-sm text-white">Connect Gmail</a>
               )}
             </div>
           </div>
@@ -141,10 +188,55 @@ export function SettingsClient({ email, quickbooksConnected: qbInitial, gmailCon
           <li>Open Gmail — look for the Paid icon in the right sidebar</li>
           <li>Enter https://paid-app.com as the API base and paste your connection key below</li>
         </ol>
-        <button type="button" disabled={keyBusy} onClick={() => void generateConnectionKey()} className="mt-6 border border-black px-4 py-2.5 text-sm">
-          {keyBusy ? "Generating..." : "Generate connection key"}
-        </button>
-        {keyMessage && <p className={`mt-4 text-sm ${keyMessage.startsWith("Key copied") ? "text-[#1B4332]" : "text-red-600"}`}>{keyMessage}</p>}
+        <div className="mt-6 space-y-4 border border-[#E5E5E5] bg-[#FAFAFA] p-4">
+          <p className="text-xs uppercase tracking-[0.18em] text-[#6B6B6B]">Connection key</p>
+          <div className="rounded border border-[#D8D8D8] bg-white px-3 py-2 font-mono text-xs break-all">
+            {maskedKey(apiKey)}
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => setShowKey((v) => !v)}
+              className="border border-black px-3 py-2 text-xs"
+            >
+              {showKey ? "Hide key" : "Show key"}
+            </button>
+            <button
+              type="button"
+              disabled={!apiKey}
+              onClick={() => apiKey && navigator.clipboard.writeText(apiKey)}
+              className="border border-black px-3 py-2 text-xs disabled:opacity-50"
+            >
+              Copy key
+            </button>
+            <button
+              type="button"
+              disabled={keyBusy}
+              onClick={() => void generateConnectionKey()}
+              className="bg-[#1B4332] px-3 py-2 text-xs text-white"
+            >
+              {keyBusy ? "Generating..." : apiKey ? "Regenerate key" : "Generate key"}
+            </button>
+          </div>
+          <p className="text-xs text-[#6B6B6B]">Generated: {formatTime(apiKeyCreatedAt)}</p>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              disabled={healthBusy}
+              onClick={() => void testConnection()}
+              className="border border-black px-3 py-2 text-xs"
+            >
+              {healthBusy ? "Testing..." : "Test connection"}
+            </button>
+            {healthOk === true && <span className="text-xs text-[#1B4332]">✓ Paid servers reachable</span>}
+            {healthOk === false && <span className="text-xs text-red-600">Connection failed</span>}
+          </div>
+        </div>
+        {keyMessage && (
+          <p className={`mt-4 text-sm ${keyMessage.includes("generated") ? "text-[#1B4332]" : "text-red-600"}`}>
+            {keyMessage}
+          </p>
+        )}
       </section>
 
       <div className="border-t border-[#E5E5E5] pt-10">

@@ -1,4 +1,5 @@
 import { computeCohorts, computeSidebarHeader } from "@/lib/invoices/sidebar-stats";
+import { serverError } from "@/lib/api/errors";
 import { requireUserFromRequest } from "@/lib/api/require-user-request";
 import { createRouteHandlerClient } from "@/lib/supabase/route-client";
 import { NextRequest, NextResponse } from "next/server";
@@ -14,7 +15,7 @@ export async function GET(request: NextRequest) {
     .eq("user_id", ctx.user.id)
     .neq("status", "paid");
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error.message);
 
   const list = rows ?? [];
   const cohorts = computeCohorts(list);

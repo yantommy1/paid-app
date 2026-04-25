@@ -4,6 +4,12 @@
 
 :root {
   color-scheme: light;
+  --paid-bg: #ffffff;
+  --paid-surface: #f7f7f5;
+  --paid-text: #0d0d0d;
+  --paid-text-secondary: #6b6b6b;
+  --paid-accent: #1b4332;
+  --paid-border: #e5e5e5;
 }
 
 body {

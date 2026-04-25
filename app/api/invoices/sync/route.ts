@@ -1,3 +1,4 @@
+import { serverError, unauthorized } from "@/lib/api/errors";
 import { requireUserFromRequest } from "@/lib/api/require-user-request";
 import { ensureQuickBooksToken } from "@/lib/oauth/tokens";
 import { syncInvoicesForUser } from "@/lib/quickbooks/sync";
@@ -19,14 +20,14 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (error || !row?.quickbooks_token) {
-    return NextResponse.json({ error: "QuickBooks not connected" }, { status: 400 });
+    return serverError("QuickBooks not connected", 400);
   }
 
   let token = row.quickbooks_token as unknown as QuickBooksToken;
   try {
     const fresh = await ensureQuickBooksToken(token);
     if (!fresh) {
-      return NextResponse.json({ error: "QuickBooks token invalid — reconnect." }, { status: 401 });
+      return unauthorized("QuickBooks token invalid — reconnect.");
     }
     token = fresh;
 
@@ -41,6 +42,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, upserted: result.upserted, overdueCount: result.overdueCount, lastSyncedAt: syncedAt });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Sync failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return serverError(message);
   }
 }

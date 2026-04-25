@@ -14,7 +14,8 @@ function computeOnboardingStep(quickbooksConnected: boolean, gmailConnected: boo
 
 function ConnectedPill() {
   return (
-    <div className="mt-5 inline-flex items-center gap-2 border border-[#1B4332]/30 bg-[#1B4332]/10 px-4 py-2 text-sm font-medium text-[#1B4332]">
+    <div className="mt-5 inline-flex items-center gap-2 rounded bg-[#1B4332] px-4 py-2 text-sm font-medium text-white">
+      <span aria-hidden>✓</span>
       Connected
     </div>
   );
@@ -96,37 +97,37 @@ export function OnboardingClient({ initialStep, email, quickbooksConnected, gmai
       </header>
 
       <ol className="space-y-6">
-        <li className={card}>
-          <span className="text-xs uppercase tracking-[0.16em] text-[#1B4332]">Step 1</span>
+        <li className={`${card} border-l-4 ${step >= 1 ? "border-l-[#1B4332]" : "border-l-transparent"}`}>
+          <span className="font-mono text-xs uppercase tracking-[0.16em] text-[#1B4332]">Step 1</span>
           <h2 className="mt-2 font-display text-2xl">Connect QuickBooks</h2>
           <p className="mt-2 text-sm leading-relaxed text-[#6B6B6B]">Authorize read access to unpaid invoices.</p>
           {qbConn ? (
             <ConnectedPill />
           ) : (
-            <a href="/api/auth/quickbooks" className="mt-5 inline-block bg-black px-4 py-2.5 text-sm text-white">Connect QuickBooks</a>
+            <a href="/api/auth/quickbooks" className="mt-5 inline-block bg-[#1B4332] px-4 py-2.5 text-sm text-white">Connect QuickBooks</a>
           )}
         </li>
 
-        <li className={card}>
-          <span className="text-xs uppercase tracking-[0.16em] text-[#1B4332]">Step 2</span>
+        <li className={`${card} border-l-4 ${step >= 2 ? "border-l-[#1B4332]" : "border-l-transparent"}`}>
+          <span className="font-mono text-xs uppercase tracking-[0.16em] text-[#1B4332]">Step 2</span>
           <h2 className="mt-2 font-display text-2xl">Connect Gmail</h2>
           <p className="mt-2 text-sm leading-relaxed text-[#6B6B6B]">Allow Paid to send reminders from your Gmail address.</p>
           {gmConn ? (
             <ConnectedPill />
           ) : (
-            <a href="/api/auth/gmail" className="mt-5 inline-block bg-black px-4 py-2.5 text-sm text-white">Connect Gmail</a>
+            <a href="/api/auth/gmail" className="mt-5 inline-block bg-[#1B4332] px-4 py-2.5 text-sm text-white">Connect Gmail</a>
           )}
         </li>
 
-        <li className={card}>
-          <span className="text-xs uppercase tracking-[0.16em] text-[#1B4332]">Step 3</span>
+        <li className={`${card} border-l-4 ${step >= 3 ? "border-l-[#1B4332]" : "border-l-transparent"}`}>
+          <span className="font-mono text-xs uppercase tracking-[0.16em] text-[#1B4332]">Step 3</span>
           <h2 className="mt-2 font-display text-2xl">Install the Gmail Add-On</h2>
           <p className="mt-4 text-sm leading-relaxed text-[#6B6B6B]">
             Open Gmail, find the Paid icon in the right sidebar, then enter your API base URL and connection key.
           </p>
           <button
             type="button"
-            className="mt-4 bg-black px-4 py-2.5 text-sm text-white"
+            className="mt-4 bg-[#1B4332] px-4 py-2.5 text-sm text-white"
             onClick={async () => {
               const res = await fetch("/api/auth/api-key", { method: "POST" });
               const j = (await res.json()) as { api_key?: string; error?: string };
@@ -153,7 +154,7 @@ export function OnboardingClient({ initialStep, email, quickbooksConnected, gmai
                   type="button"
                   disabled={completing}
                   onClick={() => void completeOnboarding()}
-                  className="mt-4 border border-black bg-black px-5 py-2.5 text-sm text-white disabled:opacity-50"
+                  className="mt-4 border border-[#1B4332] bg-[#1B4332] px-5 py-2.5 text-sm text-white disabled:opacity-50"
                 >
                   {completing ? "Saving..." : "Go to dashboard"}
                 </button>

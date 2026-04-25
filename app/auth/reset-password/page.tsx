@@ -110,33 +110,33 @@ export default function ResetPasswordPage() {
   }
 
   const inputClass =
-    "w-full rounded-lg border border-white/15 bg-white/[0.04] px-3 py-2.5 text-sm text-paid-mist outline-none ring-0 placeholder:text-white/35 focus:border-[#00E5A0]/45 focus:ring-1 focus:ring-[#00E5A0]/25";
+    "w-full rounded-lg border border-[#E5E5E5] bg-white px-3 py-2.5 text-sm text-[#0D0D0D] outline-none ring-0 placeholder:text-[#6B6B6B] focus:border-[#1B4332] focus:ring-1 focus:ring-[#1B4332]/25";
 
   return (
-    <div className="min-h-screen bg-paid-ink text-paid-mist">
+    <div className="min-h-screen bg-white text-[#0D0D0D]">
       <div className="mx-auto flex min-h-screen max-w-md flex-col px-6 py-16">
         <Link
           href="/"
-          className="font-display text-2xl tracking-tight text-paid-mist transition hover:text-[#00E5A0]"
+          className="font-display text-2xl tracking-tight text-[#0D0D0D] transition hover:text-[#1B4332]"
         >
           Paid
         </Link>
-        <p className="mt-2 font-mono text-[11px] uppercase tracking-[0.2em] text-white/40">
+        <p className="mt-2 font-mono text-[11px] uppercase tracking-[0.2em] text-[#6B6B6B]">
           Reset password
         </p>
 
-        <div className="mt-12 rounded-xl border border-white/[0.1] bg-white/[0.02] p-8">
+        <div className="mt-12 rounded-xl border border-[#E5E5E5] bg-[#F7F7F5] p-8">
           {checkingLink ? (
-            <p className="text-sm text-paid-mist/60">Confirming your reset link…</p>
+            <p className="text-sm text-[#6B6B6B]">Confirming your reset link…</p>
           ) : !canReset ? (
             <div className="space-y-4">
-              <p className="text-sm leading-relaxed text-paid-mist/75">
+              <p className="text-sm leading-relaxed text-[#6B6B6B]">
                 This password reset link is invalid or has expired. Request a
                 new one from the sign-in page.
               </p>
               <Link
                 href="/"
-                className="inline-block text-sm font-medium text-[#00E5A0] hover:underline"
+                className="inline-block text-sm font-medium text-[#1B4332] hover:underline"
               >
                 Back to Paid
               </Link>
@@ -144,7 +144,7 @@ export default function ResetPasswordPage() {
           ) : (
             <form onSubmit={onSubmit} className="space-y-6">
               <div>
-                <label htmlFor={passwordId} className="mb-1.5 block text-sm font-medium text-paid-mist/70">
+                <label htmlFor={passwordId} className="mb-1.5 block text-sm font-medium text-[#6B6B6B]">
                   New password
                 </label>
                 <input
@@ -161,7 +161,7 @@ export default function ResetPasswordPage() {
               <button
                 type="submit"
                 disabled={status === "loading" || status === "success"}
-                className="w-full rounded-lg bg-[#00E5A0] py-2.5 text-sm font-semibold text-paid-ink transition hover:brightness-110 disabled:opacity-60"
+                className="w-full rounded-lg bg-[#1B4332] py-2.5 text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-60"
               >
                 {status === "loading" ? "Working…" : "Set new password"}
               </button>
@@ -169,8 +169,8 @@ export default function ResetPasswordPage() {
                 <p
                   className={
                     status === "error"
-                      ? "text-sm text-red-400"
-                      : "text-sm text-[#00E5A0]/90"
+                      ? "text-sm text-red-600"
+                      : "text-sm text-[#1B4332]"
                   }
                   role={status === "error" ? "alert" : "status"}
                 >

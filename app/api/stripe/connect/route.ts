@@ -1,3 +1,4 @@
+import { serverError } from "@/lib/api/errors";
 import { requireUserFromRequest } from "@/lib/api/require-user-request";
 import { createConnectOnboarding } from "@/lib/stripe/connect";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -26,6 +27,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ url, accountId });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Stripe Connect failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return serverError(message);
   }
 }

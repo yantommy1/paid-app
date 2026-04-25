@@ -1,4 +1,5 @@
 import { processDailyReminders } from "@/lib/cron/process-reminders";
+import { serverError, unauthorized } from "@/lib/api/errors";
 import { ensureQuickBooksToken } from "@/lib/oauth/tokens";
 import { syncInvoicesForUser } from "@/lib/quickbooks/sync";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -18,13 +19,13 @@ export async function GET(request: NextRequest) {
     fromVercelCron ||
     (secret && (auth === `Bearer ${secret}` || q === secret));
   if (!ok) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return unauthorized();
   }
 
   const admin = createAdminClient();
   const { data: users, error } = await admin.from("users").select("*");
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverError(error.message);
   }
 
   const results: Record<string, { sync?: string; reminders?: string }> = {};

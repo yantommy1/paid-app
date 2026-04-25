@@ -7,10 +7,10 @@ export const metadata: Metadata = {
     "Terms governing use of Paid’s B2B invoice follow-up service at paid-app.com.",
 };
 
-const section = "mt-12 border-t border-white/[0.08] pt-12 first:mt-0 first:border-0 first:pt-0";
-const h2 = "font-display text-2xl tracking-tight text-paid-mist";
-const p = "mt-4 text-sm leading-relaxed text-paid-mist/75";
-const ul = "mt-4 list-disc space-y-2 pl-5 text-sm leading-relaxed text-paid-mist/75";
+const section = "mt-12 border-t border-[#E5E5E5] pt-12 first:mt-0 first:border-0 first:pt-0";
+const h2 = "font-display text-2xl tracking-tight text-[#0D0D0D]";
+const p = "mt-4 text-sm leading-relaxed text-[#6B6B6B]";
+const ul = "mt-4 list-disc space-y-2 pl-5 text-sm leading-relaxed text-[#6B6B6B]";
 
 export default function TermsPage() {
   return (
@@ -226,7 +226,7 @@ export default function TermsPage() {
           For questions about these Terms, contact us at{" "}
           <a
             href="mailto:legal@paid-app.com"
-            className="text-[#00E5A0] underline decoration-[#00E5A0]/40 underline-offset-2 hover:decoration-[#00E5A0]"
+            className="text-[#1B4332] underline decoration-[#1B4332]/40 underline-offset-2 hover:decoration-[#1B4332]"
           >
             legal@paid-app.com
           </a>

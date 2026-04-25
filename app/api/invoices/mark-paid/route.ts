@@ -1,3 +1,4 @@
+import { notFound, serverError } from "@/lib/api/errors";
 import { requireUserFromRequest } from "@/lib/api/require-user-request";
 import { markInvoicePaidWithFees } from "@/lib/fees/mark-invoice-paid";
 import { createRouteHandlerClient } from "@/lib/supabase/route-client";
@@ -16,12 +17,12 @@ export async function POST(request: NextRequest) {
   try {
     json = await request.json();
   } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    return serverError("Invalid JSON", 400);
   }
 
   const parsed = BodySchema.safeParse(json);
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    return serverError("Invalid payload", 400);
   }
 
   const supabase = await createRouteHandlerClient(request);
@@ -40,6 +41,7 @@ export async function POST(request: NextRequest) {
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed";
     const status = message === "Invoice not found" ? 404 : 500;
-    return NextResponse.json({ error: message }, { status });
+    if (status === 404) return notFound(message);
+    return serverError(message);
   }
 }
