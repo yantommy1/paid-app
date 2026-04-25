@@ -1,5 +1,6 @@
 "use client";
 
+import { getPostLoginPath } from "@/lib/auth/post-login-path";
 import { createClient } from "@/lib/supabase/browser";
 import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
@@ -13,7 +14,7 @@ type Props = {
   intent?: AuthIntent;
 };
 
-function mapAuthError(raw: string | undefined): string {
+export function mapAuthError(raw: string | undefined): string {
   if (!raw) return "Something went wrong. Please try again.";
   const lower = raw.toLowerCase();
   if (lower.includes("invalid login") || lower.includes("invalid credentials")) {
@@ -37,10 +38,10 @@ async function redirectAfterSession(router: ReturnType<typeof useRouter>) {
   if (!user) return;
   const { data: profile } = await supabase
     .from("users")
-    .select("onboarding_completed")
+    .select("onboarding_completed, subscription_status")
     .eq("id", user.id)
     .maybeSingle();
-  router.push(profile?.onboarding_completed ? "/dashboard" : "/onboarding");
+  router.push(getPostLoginPath(profile));
   router.refresh();
 }
 

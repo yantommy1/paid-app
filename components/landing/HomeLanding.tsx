@@ -1,13 +1,13 @@
 "use client";
 
-import type { AuthIntent } from "@/components/LandingEmailForm";
-import { LandingEmailForm } from "@/components/LandingEmailForm";
+import { AuthSignInModal } from "@/components/AuthSignInModal";
 import { GmailSidebarMockup } from "@/components/landing/GmailSidebarMockup";
 import { SectionReveal } from "@/components/landing/SectionReveal";
 import { createClient } from "@/lib/supabase/browser";
 import type { User } from "@supabase/supabase-js";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 
 function navAvatarLetter(user: User): string {
   const meta = user.user_metadata as { full_name?: string; name?: string } | undefined;
@@ -17,9 +17,46 @@ function navAvatarLetter(user: User): string {
   return (user.email ?? "?").charAt(0).toUpperCase();
 }
 
+function HeroPricingCards() {
+  return (
+    <div className="mt-10 grid gap-4 sm:grid-cols-2">
+      <div className="border border-[#E5E5E5] bg-white p-5 shadow-sm">
+        <h3 className="font-display text-xl text-[#0D0D0D]">Starter</h3>
+        <p className="mt-2 font-display text-3xl text-[#0D0D0D]">
+          $29<span className="ml-1 text-sm text-[#6B6B6B]">/mo</span>
+        </p>
+        <p className="mt-3 text-xs text-[#6B6B6B]">Up to 50 invoices · AI reminders</p>
+        <Link
+          href="/pricing"
+          className="mt-5 inline-flex w-full items-center justify-center rounded-md bg-[#1B4332] py-2.5 text-center text-sm font-medium text-white hover:opacity-95"
+        >
+          Start free trial
+        </Link>
+      </div>
+      <div className="border border-[#1B4332] bg-[#F7F7F5] p-5 shadow-sm">
+        <p className="-mx-5 -mt-5 mb-4 bg-[#1B4332] py-1.5 text-center text-[10px] font-semibold uppercase tracking-[0.2em] text-white">
+          Most popular
+        </p>
+        <h3 className="font-display text-xl text-[#0D0D0D]">Pro</h3>
+        <p className="mt-2 font-display text-3xl text-[#0D0D0D]">
+          $49<span className="ml-1 text-sm text-[#6B6B6B]">/mo</span>
+        </p>
+        <p className="mt-3 text-xs text-[#6B6B6B]">Unlimited invoices · Priority support</p>
+        <Link
+          href="/pricing"
+          className="mt-5 inline-flex w-full items-center justify-center rounded-md bg-[#1B4332] py-2.5 text-center text-sm font-medium text-white hover:opacity-95"
+        >
+          Start free trial
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 export function HomeLanding() {
-  const emailSignupRef = useRef<HTMLElement>(null);
-  const [inlineIntent, setInlineIntent] = useState<AuthIntent>("signup");
+  const router = useRouter();
+  const [signInOpen, setSignInOpen] = useState(false);
+  const [ctaEmail, setCtaEmail] = useState("");
   const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
@@ -31,19 +68,20 @@ export function HomeLanding() {
     return () => subscription.unsubscribe();
   }, []);
 
-  const goToAuth = useCallback((intent: AuthIntent) => {
-    setInlineIntent(intent);
-    window.setTimeout(() => {
-      const el = emailSignupRef.current ?? document.getElementById("email-signup");
-      el?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 0);
-  }, []);
+  function onCtaSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const q = ctaEmail.trim();
+    const url = q ? `/pricing?email=${encodeURIComponent(q)}` : "/pricing";
+    router.push(url);
+  }
 
   return (
     <div className="min-h-screen bg-white text-[#0D0D0D]">
       <nav className="sticky top-0 z-30 border-b border-[#E5E5E5] bg-white/95 backdrop-blur-sm">
-        <div className="mx-auto flex w-full max-w-[1200px] items-center justify-between px-6 py-5">
-          <span className="font-display text-4xl font-semibold text-[#0D0D0D]">Paid</span>
+        <div className="mx-auto flex w-full max-w-[1200px] items-center justify-between gap-4 px-6 py-5">
+          <Link href="/" className="font-display text-4xl font-semibold text-[#0D0D0D]">
+            Paid
+          </Link>
           {user ? (
             <div className="flex items-center gap-3">
               <span className="flex h-8 w-8 items-center justify-center rounded-full border border-[#E5E5E5] text-sm text-[#0D0D0D]">
@@ -54,16 +92,27 @@ export function HomeLanding() {
               </Link>
             </div>
           ) : (
-            <div className="flex items-center gap-6 text-sm text-[#0D0D0D]">
-              <button type="button" onClick={() => goToAuth("signup")}>Get started</button>
-              <button type="button" onClick={() => goToAuth("signin")}>Sign in</button>
+            <div className="flex items-center gap-3 sm:gap-4">
+              <Link
+                href="/pricing"
+                className="rounded-md bg-[#1B4332] px-4 py-2 text-sm font-medium text-white hover:opacity-95"
+              >
+                Start free trial
+              </Link>
+              <button
+                type="button"
+                onClick={() => setSignInOpen(true)}
+                className="text-sm text-[#0D0D0D] hover:text-[#1B4332]"
+              >
+                Sign in
+              </button>
             </div>
           )}
         </div>
       </nav>
 
       <main>
-        <section className="relative overflow-hidden py-24">
+        <section className="relative overflow-hidden py-16 md:py-24">
           <div
             aria-hidden
             className="pointer-events-none absolute inset-y-0 right-0 hidden w-1/2 opacity-40 lg:block"
@@ -77,7 +126,7 @@ export function HomeLanding() {
             aria-hidden
             className="pointer-events-none absolute -right-40 top-8 h-[540px] w-[540px] rounded-full border-[72px] border-[#1B4332]/[0.04]"
           />
-          <div className="relative mx-auto grid w-full max-w-[1200px] gap-14 px-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] lg:items-center">
+          <div className="relative mx-auto flex w-full max-w-[1200px] flex-col gap-14 px-6 lg:grid lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] lg:items-center">
             <SectionReveal>
               <div>
                 <p className="mb-6 text-sm uppercase tracking-[0.22em] text-[#1B4332]">AI Receivables</p>
@@ -87,17 +136,12 @@ export function HomeLanding() {
                   We&apos;ll get you paid.
                 </h1>
                 <p className="mt-6 max-w-xl text-[18px] leading-relaxed text-[#6B6B6B]">
-                  Paid syncs your invoices and sends AI-drafted payment reminders from your real email — automatically, in your voice.
+                  Paid syncs your invoices and sends AI-drafted payment reminders from your real email —
+                  automatically, in your voice.
                 </p>
-                <div className="mt-10 flex flex-wrap items-center gap-6">
-                  <button
-                    type="button"
-                    onClick={() => goToAuth("signup")}
-                    className="bg-[#1B4332] px-6 py-3 text-sm font-medium text-white"
-                  >
-                    Get started
-                  </button>
-                  <a href="#how-it-works" className="text-sm text-[#0D0D0D]">
+                <HeroPricingCards />
+                <div className="mt-8">
+                  <a href="#how-it-works" className="text-sm text-[#0D0D0D] hover:text-[#1B4332]">
                     See how it works →
                   </a>
                 </div>
@@ -121,41 +165,37 @@ export function HomeLanding() {
           </div>
         </section>
 
-        <section className="py-10">
-          <div className="mx-auto w-full max-w-[1200px] px-6">
-            <p className="text-center text-sm uppercase tracking-[0.22em] text-[#6B6B6B]">
-              Trusted by professional services firms
-            </p>
-            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-              {["Law Firms", "Architecture", "Consulting", "Accounting", "Engineering"].map((label) => (
-                <div
-                  key={label}
-                  className="flex h-14 items-center justify-center border border-[#E5E5E5] bg-[#F7F7F5] text-sm text-[#6B6B6B]"
-                >
-                  {label}
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="border-t border-[#E5E5E5] py-24">
+        <section className="bg-[#F7F7F5] py-24">
           <div className="mx-auto w-full max-w-[1200px] px-6">
             <SectionReveal>
-              <p className="text-sm uppercase tracking-[0.22em] text-[#1B4332]">The AR Reality</p>
-              <h2 className="font-display text-4xl tracking-tight text-[#0D0D0D]">
-                Getting paid shouldn&apos;t be a second job.
-              </h2>
-              <div className="mt-14 grid gap-6 md:grid-cols-3">
+              <p className="text-sm uppercase tracking-[0.22em] text-[#1B4332]">Testimonials</p>
+              <h2 className="mt-3 font-display text-5xl text-[#0D0D0D]">What firms say after switching to Paid</h2>
+              <div className="mt-12 grid gap-6 md:grid-cols-3">
                 {[
-                  { stat: "$825B", body: "in outstanding AR held by US small businesses" },
-                  { stat: "47", body: "days average payment delay in professional services" },
-                  { stat: "23%", body: "of invoices are never collected after 90 days" },
-                ].map((card) => (
-                  <article key={card.stat} className="border border-[#E5E5E5] bg-[#F0F7F4] px-6 py-7">
-                    <div className="mb-5 h-8 border-l-4 border-[#1B4332]" aria-hidden />
-                    <p className="font-display text-5xl leading-none text-[#0D0D0D]">{card.stat}</p>
-                    <p className="mt-4 text-sm leading-relaxed text-[#6B6B6B]">{card.body}</p>
+                  {
+                    quote:
+                      "We had $47,000 sitting in overdue invoices. Paid recovered $38,000 of it in the first month without a single awkward phone call.",
+                    name: "Sarah Chen",
+                    title: "Managing Partner, Chen & Associates Law",
+                  },
+                  {
+                    quote:
+                      "I used to spend two hours every Friday chasing payments. Now I open Gmail and Paid has already sent the reminders. I haven't thought about AR in weeks.",
+                    name: "Marcus Webb",
+                    title: "Principal, Webb Architecture",
+                  },
+                  {
+                    quote:
+                      "Our average collection time went from 67 days to 23 days. The reminders sound exactly like something I would write — clients don't even know it's automated.",
+                    name: "Priya Nair",
+                    title: "Founder, Nair Consulting Group",
+                  },
+                ].map((t) => (
+                  <article key={t.name} className="border border-[#E5E5E5] bg-white p-6">
+                    <p className="font-display text-5xl leading-none text-[#1B4332]">“</p>
+                    <p className="mt-4 font-display text-xl leading-relaxed text-[#0D0D0D]">{t.quote}</p>
+                    <p className="mt-6 text-sm font-semibold text-[#0D0D0D]">{t.name}</p>
+                    <p className="mt-1 text-sm text-[#6B6B6B]">{t.title}</p>
                   </article>
                 ))}
               </div>
@@ -217,7 +257,10 @@ export function HomeLanding() {
                   "Tone calibrated to 30, 60, and 90 day buckets",
                   "One click to send from your inbox",
                 ].map((line, idx) => (
-                  <p key={line} className="relative overflow-hidden border-b border-[#E5E5E5] py-5 pl-10 text-sm text-[#0D0D0D] transition hover:text-[#1B4332]">
+                  <p
+                    key={line}
+                    className="relative overflow-hidden border-b border-[#E5E5E5] py-5 pl-10 text-sm text-[#0D0D0D] transition hover:text-[#1B4332]"
+                  >
                     <span className="pointer-events-none absolute left-0 top-1/2 -translate-y-1/2 text-[52px] font-display leading-none text-[#F0F0F0]">
                       {String(idx + 1).padStart(2, "0")}
                     </span>
@@ -229,121 +272,31 @@ export function HomeLanding() {
           </div>
         </section>
 
-        <section className="bg-[#F7F7F5] py-24">
-          <div className="mx-auto w-full max-w-[1200px] px-6">
+        <p className="mx-auto max-w-[1200px] px-6 pb-4 text-center text-sm text-[#6B6B6B]">
+          Both plans include a 30-day free trial. No charge until day 31.
+        </p>
+
+        <section className="border-t border-[#E5E5E5] bg-[#F7F7F5] py-24">
+          <div className="mx-auto max-w-xl px-6 text-center">
             <SectionReveal>
-              <p className="text-sm uppercase tracking-[0.22em] text-[#1B4332]">Testimonials</p>
-              <h2 className="mt-3 font-display text-5xl text-[#0D0D0D]">What firms say after switching to Paid</h2>
-              <div className="mt-12 grid gap-6 md:grid-cols-3">
-                {[
-                  {
-                    quote:
-                      "We had $47,000 sitting in overdue invoices. Paid recovered $38,000 of it in the first month without a single awkward phone call.",
-                    name: "Sarah Chen",
-                    title: "Managing Partner, Chen & Associates Law",
-                  },
-                  {
-                    quote:
-                      "I used to spend two hours every Friday chasing payments. Now I open Gmail and Paid has already sent the reminders. I haven't thought about AR in weeks.",
-                    name: "Marcus Webb",
-                    title: "Principal, Webb Architecture",
-                  },
-                  {
-                    quote:
-                      "Our average collection time went from 67 days to 23 days. The reminders sound exactly like something I would write — clients don't even know it's automated.",
-                    name: "Priya Nair",
-                    title: "Founder, Nair Consulting Group",
-                  },
-                ].map((t) => (
-                  <article key={t.name} className="border border-[#E5E5E5] bg-white p-6">
-                    <p className="font-display text-5xl leading-none text-[#1B4332]">“</p>
-                    <p className="mt-4 font-display text-xl leading-relaxed text-[#0D0D0D]">{t.quote}</p>
-                    <p className="mt-6 text-sm font-semibold text-[#0D0D0D]">{t.name}</p>
-                    <p className="mt-1 text-sm text-[#6B6B6B]">{t.title}</p>
-                  </article>
-                ))}
-              </div>
-            </SectionReveal>
-          </div>
-        </section>
-
-        <section ref={emailSignupRef} id="email-signup" className="bg-[#F7F7F5] py-24">
-          <div className="mx-auto w-full max-w-[1200px] px-6">
-            <SectionReveal>
-              <p className="text-sm uppercase tracking-[0.22em] text-[#1B4332]">Pricing</p>
-              <h2 className="mt-3 font-display text-5xl text-[#0D0D0D]">Simple pricing. No surprises.</h2>
-              <div className="mt-14 grid gap-6 md:grid-cols-2">
-                <article className="border border-[#E5E5E5] bg-white p-8">
-                  <h3 className="font-display text-2xl text-[#0D0D0D]">Starter</h3>
-                  <p className="mt-3 font-display text-5xl text-[#0D0D0D]">
-                    $29<span className="ml-1 text-lg text-[#6B6B6B]">/mo</span>
-                  </p>
-                  <div className="mt-8 space-y-2 text-sm text-[#6B6B6B]">
-                    <p>Up to 50 invoices</p>
-                    <p>AI reminders</p>
-                    <p>Gmail Add-On</p>
-                    <p>QuickBooks sync</p>
-                  </div>
-                  <Link
-                    href="/pricing"
-                    className="mt-10 flex w-full items-center justify-center border border-black py-3 text-sm font-medium text-black"
-                  >
-                    Get started
-                  </Link>
-                </article>
-
-                <article className="border border-[#1B4332] bg-[#1B4332]/[0.05] p-8">
-                  <p className="-mx-8 -mt-8 mb-6 bg-[#1B4332] px-8 py-2 text-center text-xs font-semibold uppercase tracking-[0.2em] text-white">
-                    Most Popular
-                  </p>
-                  <h3 className="font-display text-2xl text-[#0D0D0D]">Pro</h3>
-                  <p className="mt-3 font-display text-5xl text-[#0D0D0D]">
-                    $49<span className="ml-1 text-lg text-[#6B6B6B]">/mo</span>
-                  </p>
-                  <div className="mt-8 space-y-2 text-sm text-[#6B6B6B]">
-                    <p>Unlimited invoices</p>
-                    <p>Custom reminder strategies</p>
-                    <p>Priority support</p>
-                    <p>Advanced recovery workflows</p>
-                  </div>
-                  <Link
-                    href="/pricing"
-                    className="mt-10 flex w-full items-center justify-center bg-[#1B4332] py-3 text-sm font-medium text-white"
-                  >
-                    Get started
-                  </Link>
-                </article>
-              </div>
-
-              <div className="mx-auto mt-20 max-w-xl border border-[#E5E5E5] bg-white p-8">
-                <div className="flex border-b border-[#E5E5E5]">
-                  <button
-                    type="button"
-                    onClick={() => setInlineIntent("signup")}
-                    className={`px-3 py-2 text-sm ${inlineIntent === "signup" ? "border-b-2 border-black text-black" : "text-[#6B6B6B]"}`}
-                  >
-                    New to Paid
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setInlineIntent("signin")}
-                    className={`px-3 py-2 text-sm ${inlineIntent === "signin" ? "border-b-2 border-black text-black" : "text-[#6B6B6B]"}`}
-                  >
-                    Sign in
-                  </button>
-                </div>
-                <h3 className="mt-6 font-display text-3xl text-[#0D0D0D]">
-                  {inlineIntent === "signup" ? "Start collecting what you&apos;ve earned." : "Welcome back"}
-                </h3>
-                <p className="mt-2 text-sm leading-relaxed text-[#6B6B6B]">
-                  {inlineIntent === "signup"
-                    ? "Enter your work email to get started."
-                    : "Enter your email and we will send a secure sign-in link."}
-                </p>
-                <div className="mt-8">
-                  <LandingEmailForm key={`inline-${inlineIntent}`} variant="light" intent={inlineIntent} />
-                </div>
-              </div>
+              <h2 className="font-display text-4xl text-[#0D0D0D] md:text-5xl">Ready to get paid?</h2>
+              <p className="mt-4 text-sm text-[#6B6B6B]">Start your free trial — pick a plan on the next step.</p>
+              <form onSubmit={onCtaSubmit} className="mx-auto mt-10 flex max-w-lg flex-col gap-3 sm:flex-row">
+                <input
+                  type="email"
+                  value={ctaEmail}
+                  onChange={(e) => setCtaEmail(e.target.value)}
+                  placeholder="you@firm.com"
+                  className="min-h-[48px] flex-1 border border-[#E5E5E5] bg-white px-4 py-3 text-sm text-[#0D0D0D] outline-none focus:border-[#1B4332]"
+                  aria-label="Work email"
+                />
+                <button
+                  type="submit"
+                  className="rounded-md bg-[#1B4332] px-6 py-3 text-sm font-medium text-white hover:opacity-95"
+                >
+                  Start free trial
+                </button>
+              </form>
             </SectionReveal>
           </div>
         </section>
@@ -352,13 +305,19 @@ export function HomeLanding() {
           <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-4 px-6 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-6">
               <span className="font-display text-2xl text-[#0D0D0D]">Paid</span>
-              <Link href="/privacy" className="text-sm text-[#6B6B6B] hover:text-[#0D0D0D]">Privacy</Link>
-              <Link href="/terms" className="text-sm text-[#6B6B6B] hover:text-[#0D0D0D]">Terms</Link>
+              <Link href="/privacy" className="text-sm text-[#6B6B6B] hover:text-[#0D0D0D]">
+                Privacy
+              </Link>
+              <Link href="/terms" className="text-sm text-[#6B6B6B] hover:text-[#0D0D0D]">
+                Terms
+              </Link>
             </div>
             <p className="text-sm text-[#6B6B6B]">You did the work. We&apos;ll get you paid.</p>
           </div>
         </footer>
       </main>
+
+      <AuthSignInModal open={signInOpen} onClose={() => setSignInOpen(false)} />
     </div>
   );
 }
