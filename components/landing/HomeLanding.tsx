@@ -276,7 +276,7 @@ export function HomeLanding() {
                 <article className="border border-[#E5E5E5] bg-white p-8">
                   <h3 className="font-display text-2xl text-[#0D0D0D]">Starter</h3>
                   <p className="mt-3 font-display text-5xl text-[#0D0D0D]">
-                    $49<span className="ml-1 text-lg text-[#6B6B6B]">/mo</span>
+                    $29<span className="ml-1 text-lg text-[#6B6B6B]">/mo</span>
                   </p>
                   <div className="mt-8 space-y-2 text-sm text-[#6B6B6B]">
                     <p>Up to 50 invoices</p>
@@ -284,13 +284,12 @@ export function HomeLanding() {
                     <p>Gmail Add-On</p>
                     <p>QuickBooks sync</p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => goToAuth("signup")}
-                    className="mt-10 w-full border border-black py-3 text-sm font-medium text-black"
+                  <Link
+                    href="/pricing"
+                    className="mt-10 flex w-full items-center justify-center border border-black py-3 text-sm font-medium text-black"
                   >
                     Get started
-                  </button>
+                  </Link>
                 </article>
 
                 <article className="border border-[#1B4332] bg-[#1B4332]/[0.05] p-8">
@@ -299,7 +298,7 @@ export function HomeLanding() {
                   </p>
                   <h3 className="font-display text-2xl text-[#0D0D0D]">Pro</h3>
                   <p className="mt-3 font-display text-5xl text-[#0D0D0D]">
-                    $99<span className="ml-1 text-lg text-[#6B6B6B]">/mo</span>
+                    $49<span className="ml-1 text-lg text-[#6B6B6B]">/mo</span>
                   </p>
                   <div className="mt-8 space-y-2 text-sm text-[#6B6B6B]">
                     <p>Unlimited invoices</p>
@@ -307,13 +306,12 @@ export function HomeLanding() {
                     <p>Priority support</p>
                     <p>Advanced recovery workflows</p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => goToAuth("signup")}
-                    className="mt-10 w-full bg-[#1B4332] py-3 text-sm font-medium text-white"
+                  <Link
+                    href="/pricing"
+                    className="mt-10 flex w-full items-center justify-center bg-[#1B4332] py-3 text-sm font-medium text-white"
                   >
                     Get started
-                  </button>
+                  </Link>
                 </article>
               </div>
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { BillingSection } from "@/components/settings/BillingSection";
 import { createClient } from "@/lib/supabase/browser";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -13,13 +14,26 @@ type Props = {
   quickbooksConnected: boolean;
   gmailConnected: boolean;
   quickbooksRealmId: string | null;
+  planName: string;
+  subscriptionStatus: string | null;
+  trialEndsAt: string | null;
+  subscriptionEndsAt: string | null;
 };
 
 function StatusDot({ connected }: { connected: boolean }) {
   return <span className={`inline-block h-2 w-2 rounded-full ${connected ? "bg-[#1B4332]" : "bg-red-600"}`} aria-hidden />;
 }
 
-export function SettingsClient({ email, quickbooksConnected: qbInitial, gmailConnected: gmInitial, quickbooksRealmId }: Props) {
+export function SettingsClient({
+  email,
+  quickbooksConnected: qbInitial,
+  gmailConnected: gmInitial,
+  quickbooksRealmId,
+  planName,
+  subscriptionStatus,
+  trialEndsAt,
+  subscriptionEndsAt,
+}: Props) {
   const router = useRouter();
   const [qbConn, setQbConn] = useState(qbInitial);
   const [gmConn, setGmConn] = useState(gmInitial);
@@ -146,6 +160,13 @@ export function SettingsClient({ email, quickbooksConnected: qbInitial, gmailCon
           <p className="text-sm text-[#6B6B6B]">Signed in as {email}</p>
         </div>
       </header>
+
+      <BillingSection
+        planName={planName}
+        subscriptionStatus={subscriptionStatus}
+        trialEndsAt={trialEndsAt}
+        subscriptionEndsAt={subscriptionEndsAt}
+      />
 
       <section className="space-y-4">
         <h2 className="text-xs uppercase tracking-[0.18em] text-[#6B6B6B]">Integrations</h2>

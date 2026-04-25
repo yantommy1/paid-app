@@ -1,4 +1,5 @@
 import { SettingsClient } from "@/components/SettingsClient";
+import { planNameFromStripePriceId } from "@/lib/billing/plan-name";
 import { createClient } from "@/lib/supabase/server";
 import type { QuickBooksToken } from "@/lib/types";
 import { redirect } from "next/navigation";
@@ -12,7 +13,9 @@ export default async function SettingsPage() {
 
   const { data: profile } = await supabase
     .from("users")
-    .select("quickbooks_token, gmail_token, email")
+    .select(
+      "quickbooks_token, gmail_token, email, stripe_price_id, subscription_status, trial_ends_at, subscription_ends_at"
+    )
     .eq("id", user.id)
     .maybeSingle();
 
@@ -30,6 +33,10 @@ export default async function SettingsPage() {
           quickbooksConnected={profile?.quickbooks_token != null}
           gmailConnected={profile?.gmail_token != null}
           quickbooksRealmId={realmId.length > 0 ? realmId : null}
+          planName={planNameFromStripePriceId(profile?.stripe_price_id as string | null | undefined)}
+          subscriptionStatus={(profile?.subscription_status as string | null) ?? null}
+          trialEndsAt={(profile?.trial_ends_at as string | null) ?? null}
+          subscriptionEndsAt={(profile?.subscription_ends_at as string | null) ?? null}
         />
       </div>
     </main>
