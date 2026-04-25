@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://paid-app.com";
 
-export async function POST(_request: NextRequest) {
+export async function POST(request: NextRequest) {
   const ctx = await requireUserFromRequest(request);
   if (ctx.response) return ctx.response;
 
