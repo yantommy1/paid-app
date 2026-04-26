@@ -77,12 +77,8 @@ function reminderAlreadySent(invoice: Invoice): boolean {
 }
 
 function openGmailCompose(to: string, subject: string, body: string) {
-  const url =
-    "https://mail.google.com/mail/?view=cm&fs=1" +
-    `&to=${encodeURIComponent(to)}` +
-    `&su=${encodeURIComponent(subject)}` +
-    `&body=${encodeURIComponent(body)}`;
-  window.open(url, "_blank", "width=600,height=700,left=200,top=100");
+  const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(to)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  window.open(gmailUrl, "_blank");
 }
 
 export function OverdueInvoicesPanel() {

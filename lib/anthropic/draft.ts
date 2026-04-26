@@ -80,6 +80,12 @@ Requirements:
 - Include a clear ask to pay or reply with questions.
 - Subject line: one line, specific, not spammy.
 - Sign the email with the sender's name: ${senderName}. Do not use their email address.
+- End the email with the following closing exactly: Thanks, ${senderName}. Do not omit the Thanks, closing under any circumstances.
+- The final lines must be formatted exactly as:
+  [blank line]
+  Thanks,
+  [blank line]
+  ${senderName}
 
 Respond with JSON only, shape: {"subject":"...","body":"..."}`;
 
