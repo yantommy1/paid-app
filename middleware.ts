@@ -1,6 +1,5 @@
 import { type NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
-import { getUserRoutingState, postLoginPathForState } from "@/lib/auth/post-login-path";
 import { createServerClient, type SetAllCookies } from "@supabase/ssr";
 import { NextResponse } from "next/server";
 
@@ -28,34 +27,13 @@ export async function middleware(request: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) {
-    return response;
-  }
 
-  const state = await getUserRoutingState(supabase, user.id);
-  const destination = postLoginPathForState(state);
-  const subStatus = state.subscriptionStatus;
-  console.info("[routing:middleware]", {
-    userId: user.id,
-    onboardingCompleted: state.onboardingCompleted,
-    subscriptionStatus: subStatus,
-    destination,
-    pathname,
-  });
-
-  if (pathname === "/") {
-    return NextResponse.redirect(new URL(destination, request.url));
-  }
-
-  if (pathname.startsWith("/dashboard") && destination !== "/dashboard") {
-    return NextResponse.redirect(new URL(destination, request.url));
-  }
-
-  if (
-    pathname.startsWith("/pricing") &&
-    (subStatus === "trialing" || subStatus === "active")
-  ) {
+  if (pathname === "/" && user) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
+  }
+
+  if (pathname.startsWith("/dashboard") && !user) {
+    return NextResponse.redirect(new URL("/", request.url));
   }
 
   return response;
