@@ -14,6 +14,13 @@ type Invoice = {
   reminder_sent_at: string | null;
 };
 
+type Stats = {
+  totalOutstanding: number;
+  remindersSent: number;
+  amountRecovered: number;
+  avgDaysToCollect: number;
+};
+
 type DraftState =
   | { status: "idle" }
   | { status: "loading" }
@@ -71,6 +78,7 @@ function reminderAlreadySent(invoice: Invoice): boolean {
 
 export function OverdueInvoicesPanel() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, DraftState>>({});
@@ -98,9 +106,21 @@ export function OverdueInvoicesPanel() {
     }
   }, []);
 
+  const loadStats = useCallback(async () => {
+    try {
+      const res = await fetch("/api/invoices/stats");
+      const j = (await res.json()) as Stats & { error?: string };
+      if (!res.ok) return;
+      setStats(j);
+    } catch {
+      setStats(null);
+    }
+  }, []);
+
   useEffect(() => {
     void loadInvoices();
-  }, [loadInvoices]);
+    void loadStats();
+  }, [loadInvoices, loadStats]);
 
   const cohortData = useMemo(() => {
     return cohorts.map((cohort) => ({
@@ -206,6 +226,7 @@ export function OverdueInvoicesPanel() {
         return;
       }
       await loadInvoices();
+      await loadStats();
     } catch {
       setListError("Sync failed.");
     } finally {
@@ -240,6 +261,34 @@ export function OverdueInvoicesPanel() {
 
   return (
     <section className="space-y-8">
+      {stats && (
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <article className="border border-[#E5E5E5] bg-white p-4">
+            <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-[#6B6B6B]">
+              Total outstanding AR
+            </p>
+            <p className="mt-2 font-display text-3xl text-[#0D0D0D]">${formatMoney(stats.totalOutstanding)}</p>
+          </article>
+          <article className="border border-[#E5E5E5] bg-white p-4">
+            <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-[#6B6B6B]">
+              Reminders sent
+            </p>
+            <p className="mt-2 font-display text-3xl text-[#0D0D0D]">{stats.remindersSent}</p>
+          </article>
+          <article className="border border-[#E5E5E5] bg-white p-4">
+            <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-[#6B6B6B]">
+              Amount recovered
+            </p>
+            <p className="mt-2 font-display text-3xl text-[#0D0D0D]">${formatMoney(stats.amountRecovered)}</p>
+          </article>
+          <article className="border border-[#E5E5E5] bg-white p-4">
+            <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-[#6B6B6B]">
+              Average days to collect
+            </p>
+            <p className="mt-2 font-display text-3xl text-[#0D0D0D]">{stats.avgDaysToCollect}</p>
+          </article>
+        </div>
+      )}
       <div className="flex justify-end">
         <button
           type="button"

@@ -28,6 +28,11 @@ export function HomeLanding({
   const [inlineIntent, setInlineIntent] = useState<"signup" | "signin">("signup");
   const [signInModalOpen, setSignInModalOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null);
+  const [summary, setSummary] = useState<{
+    totalOutstanding: number;
+    overdueInvoiceCount: number;
+    overdueClientCount: number;
+  } | null>(null);
 
   useEffect(() => {
     const supabase = createClient();
@@ -37,6 +42,37 @@ export function HomeLanding({
     } = supabase.auth.onAuthStateChange((_, session) => setUser(session?.user ?? null));
     return () => subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setSummary(null);
+      return;
+    }
+    let cancelled = false;
+    fetch("/api/invoices/summary")
+      .then((res) => (res.ok ? res.json() : null))
+      .then(
+        (data:
+          | {
+              header?: { totalOutstanding?: number; overdueClientCount?: number };
+              overdueInvoiceCount?: number;
+            }
+          | null) => {
+          if (cancelled || !data) return;
+          setSummary({
+            totalOutstanding: Number(data.header?.totalOutstanding ?? 0),
+            overdueInvoiceCount: Number(data.overdueInvoiceCount ?? 0),
+            overdueClientCount: Number(data.header?.overdueClientCount ?? 0),
+          });
+        }
+      )
+      .catch(() => {
+        if (!cancelled) setSummary(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   function onStartFreeTrial() {
     if (!starterPriceId) return;
@@ -241,6 +277,7 @@ export function HomeLanding({
           </div>
         </section>
 
+        {!user ? (
         <section className="bg-[#F7F7F5] py-24">
           <div className="mx-auto w-full max-w-[1200px] px-6">
             <SectionReveal>
@@ -278,6 +315,65 @@ export function HomeLanding({
             </SectionReveal>
           </div>
         </section>
+        ) : (
+        <section className="bg-[#F7F7F5] py-24">
+          <div className="mx-auto w-full max-w-[1200px] px-6">
+            <SectionReveal>
+              <div className="mx-auto max-w-3xl border border-[#E5E5E5] bg-white p-10 text-center">
+                <p className="text-sm uppercase tracking-[0.2em] text-[#1B4332]">Welcome back</p>
+                <h2 className="mt-3 font-display text-4xl text-[#0D0D0D]">
+                  Welcome back, {user.email ?? "there"}
+                </h2>
+                <div className="mt-10 grid gap-4 sm:grid-cols-3">
+                  <article className="border border-[#E5E5E5] bg-white p-4">
+                    <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-[#6B6B6B]">
+                      Total outstanding
+                    </p>
+                    <p className="mt-2 font-display text-3xl text-[#0D0D0D]">
+                      $
+                      {(summary?.totalOutstanding ?? 0).toLocaleString(undefined, {
+                        maximumFractionDigits: 0,
+                      })}
+                    </p>
+                  </article>
+                  <article className="border border-[#E5E5E5] bg-white p-4">
+                    <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-[#6B6B6B]">
+                      Overdue invoices
+                    </p>
+                    <p className="mt-2 font-display text-3xl text-[#0D0D0D]">
+                      {summary?.overdueInvoiceCount ?? 0}
+                    </p>
+                  </article>
+                  <article className="border border-[#E5E5E5] bg-white p-4">
+                    <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-[#6B6B6B]">
+                      Clients overdue
+                    </p>
+                    <p className="mt-2 font-display text-3xl text-[#0D0D0D]">
+                      {summary?.overdueClientCount ?? 0}
+                    </p>
+                  </article>
+                </div>
+                <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
+                  <Link
+                    href="/dashboard"
+                    className="inline-flex items-center justify-center bg-[#1B4332] px-6 py-3 text-sm font-medium text-white"
+                  >
+                    Go to dashboard
+                  </Link>
+                  <a
+                    href="https://mail.google.com"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center border border-[#E5E5E5] bg-white px-6 py-3 text-sm font-medium text-[#0D0D0D]"
+                  >
+                    Open Gmail
+                  </a>
+                </div>
+              </div>
+            </SectionReveal>
+          </div>
+        </section>
+        )}
 
         <section className="bg-[#F7F7F5] py-24">
           <div className="mx-auto w-full max-w-[1200px] px-6">

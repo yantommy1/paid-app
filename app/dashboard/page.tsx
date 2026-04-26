@@ -35,12 +35,26 @@ export default async function DashboardPage({
     .eq("id", user.id)
     .maybeSingle();
 
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+  const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString();
+  const { data: recoveredRows } = await supabase
+    .from("invoices")
+    .select("amount")
+    .eq("user_id", user.id)
+    .gte("recovered_at", monthStart)
+    .lt("recovered_at", nextMonthStart);
+
   const subStatus = (profile?.subscription_status as string | null) ?? null;
 
   const showPastDue = subStatus === "past_due";
   const showTrialing = subStatus === "trialing";
   const trialEndsAt = (profile?.trial_ends_at as string | null) ?? null;
   const trialDays = trialEndsAt ? trialDaysRemaining(trialEndsAt) : null;
+  const recoveredThisMonth = (recoveredRows ?? []).reduce(
+    (sum, row) => sum + Number(row.amount ?? 0),
+    0
+  );
 
   const sp = await searchParams;
   const showSubSuccess = sp.subscription === "success";
@@ -52,6 +66,16 @@ export default async function DashboardPage({
         {showSubSuccess && (
           <div className="mb-6 rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
             Welcome — your subscription is set. You&apos;re all set to use Paid.
+          </div>
+        )}
+        {recoveredThisMonth > 0 && (
+          <div className="mb-6 rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+            You collected $
+            {recoveredThisMonth.toLocaleString(undefined, {
+              minimumFractionDigits: 0,
+              maximumFractionDigits: 0,
+            })}{" "}
+            this month via Paid reminders.
           </div>
         )}
         {showTrialing && trialEndsAt && trialDays !== null && (
