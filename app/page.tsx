@@ -1,5 +1,5 @@
 import { HomeLanding } from "@/components/landing/HomeLanding";
-import { postLoginPathForState } from "@/lib/auth/post-login-path";
+import { getUserRoutingState, postLoginPathForState } from "@/lib/auth/post-login-path";
 import { createClient } from "@/lib/supabase/server";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
@@ -17,19 +17,9 @@ export default async function HomePage() {
   } = await supabase.auth.getUser();
 
   if (user) {
-    const { data: profile } = await supabase
-      .from("users")
-      .select("onboarding_completed, subscription_status")
-      .eq("id", user.id)
-      .maybeSingle();
-
-    const destination = postLoginPathForState({
-      onboardingCompleted: profile?.onboarding_completed === true,
-      subscriptionStatus: (profile?.subscription_status as string | null) ?? null,
-    });
-
-    redirect(destination);
+    const state = await getUserRoutingState(supabase, user.id);
+    redirect(postLoginPathForState(state));
   }
 
-  return <HomeLanding />;
+  return <HomeLanding starterPriceId={process.env.STRIPE_STARTER_PRICE_ID?.trim() ?? ""} />;
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/browser";
+import { clearPendingPlan, getPendingPlan } from "@/lib/billing/pending-plan";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -72,6 +73,29 @@ export function OnboardingClient({ initialStep, email, quickbooksConnected, gmai
       const j = (await res.json()) as { error?: string; nextPath?: string };
       if (!res.ok) {
         setCompleteError(j.error ?? "Could not save progress.");
+        return;
+      }
+      const pendingPlan = getPendingPlan();
+      if (pendingPlan?.priceId) {
+        const checkoutRes = await fetch("/api/stripe/create-checkout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ priceId: pendingPlan.priceId, plan: pendingPlan.plan }),
+        });
+        const checkoutJson = (await checkoutRes.json()) as { url?: string; error?: string };
+        if (!checkoutRes.ok || !checkoutJson.url) {
+          setCompleteError(
+            typeof checkoutJson.error === "string"
+              ? checkoutJson.error
+              : "Could not start checkout. Continue from pricing."
+          );
+          router.push("/pricing");
+          router.refresh();
+          return;
+        }
+        clearPendingPlan();
+        window.location.href = checkoutJson.url;
         return;
       }
       router.push(j.nextPath ?? "/pricing");

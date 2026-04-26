@@ -1,6 +1,6 @@
 import { type NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
-import { postLoginPathForState } from "@/lib/auth/post-login-path";
+import { getUserRoutingState, postLoginPathForState } from "@/lib/auth/post-login-path";
 import { createServerClient, type SetAllCookies } from "@supabase/ssr";
 import { NextResponse } from "next/server";
 
@@ -32,17 +32,9 @@ export async function middleware(request: NextRequest) {
     return response;
   }
 
-  const { data: profile } = await supabase
-    .from("users")
-    .select("onboarding_completed, subscription_status")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  const destination = postLoginPathForState({
-    onboardingCompleted: profile?.onboarding_completed === true,
-    subscriptionStatus: (profile?.subscription_status as string | null) ?? null,
-  });
-  const subStatus = (profile?.subscription_status as string | null) ?? null;
+  const state = await getUserRoutingState(supabase, user.id);
+  const destination = postLoginPathForState(state);
+  const subStatus = state.subscriptionStatus;
 
   if (pathname === "/") {
     return NextResponse.redirect(new URL(destination, request.url));

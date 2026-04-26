@@ -1,18 +1,28 @@
 "use client";
 
+import { SignupModal } from "@/components/SignupModal";
+import { savePendingPlan } from "@/lib/billing/pending-plan";
 import { useState } from "react";
 
 type Props = {
   starterPriceId: string;
   proPriceId: string;
+  loggedIn?: boolean;
+  initialEmail?: string;
 };
 
-export function PricingPlans({ starterPriceId, proPriceId }: Props) {
+export function PricingPlans({ starterPriceId, proPriceId, loggedIn = true }: Props) {
   const [loading, setLoading] = useState<"starter" | "pro" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [signupPlan, setSignupPlan] = useState<"starter" | "pro" | null>(null);
 
   async function startCheckout(plan: "starter" | "pro") {
     const priceId = plan === "starter" ? starterPriceId : proPriceId;
+    savePendingPlan({ plan, priceId });
+    if (!loggedIn) {
+      setSignupPlan(plan);
+      return;
+    }
     if (!priceId) {
       setError("Pricing is not configured. Set STRIPE_STARTER_PRICE_ID and STRIPE_PRO_PRICE_ID.");
       return;
@@ -40,8 +50,9 @@ export function PricingPlans({ starterPriceId, proPriceId }: Props) {
   }
 
   return (
-    <div className="mt-12 grid gap-8 md:grid-cols-2">
-      <article className="border border-[#E5E5E5] bg-white p-8">
+    <>
+      <div className="mt-12 grid gap-8 md:grid-cols-2">
+        <article className="border border-[#E5E5E5] bg-white p-8">
         <h2 className="font-display text-2xl text-[#0D0D0D]">Starter</h2>
         <p className="mt-2 text-sm text-[#6B6B6B]">30-day free trial — card required</p>
         <p className="mt-4 font-display text-5xl text-[#0D0D0D]">
@@ -61,9 +72,9 @@ export function PricingPlans({ starterPriceId, proPriceId }: Props) {
         >
           {loading === "starter" ? "Loading…" : "Start free trial"}
         </button>
-      </article>
+        </article>
 
-      <article className="border border-[#1B4332] bg-[#F7F7F5] p-8">
+        <article className="border border-[#1B4332] bg-[#F7F7F5] p-8">
         <p className="-mx-8 -mt-8 mb-6 bg-[#1B4332] px-8 py-2 text-center text-xs font-semibold uppercase tracking-[0.2em] text-white">
           Most popular
         </p>
@@ -86,9 +97,19 @@ export function PricingPlans({ starterPriceId, proPriceId }: Props) {
         >
           {loading === "pro" ? "Loading…" : "Start free trial"}
         </button>
-      </article>
+        </article>
 
-      {error && <p className="col-span-full text-sm text-red-600">{error}</p>}
-    </div>
+        {error && <p className="col-span-full text-sm text-red-600">{error}</p>}
+      </div>
+      {signupPlan && (
+        <SignupModal
+          open
+          onClose={() => setSignupPlan(null)}
+          plan={signupPlan}
+          priceId={signupPlan === "starter" ? starterPriceId : proPriceId}
+          priceLabel={signupPlan === "starter" ? "$29/month" : "$49/month"}
+        />
+      )}
+    </>
   );
 }

@@ -1,13 +1,15 @@
 "use client";
 
-import type { AuthIntent } from "@/components/LandingEmailForm";
 import { LandingEmailForm } from "@/components/LandingEmailForm";
+import { SignupModal } from "@/components/SignupModal";
+import { savePendingPlan } from "@/lib/billing/pending-plan";
 import { GmailSidebarMockup } from "@/components/landing/GmailSidebarMockup";
 import { SectionReveal } from "@/components/landing/SectionReveal";
 import { createClient } from "@/lib/supabase/browser";
 import type { User } from "@supabase/supabase-js";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 
 function navAvatarLetter(user: User): string {
   const meta = user.user_metadata as { full_name?: string; name?: string } | undefined;
@@ -17,10 +19,15 @@ function navAvatarLetter(user: User): string {
   return (user.email ?? "?").charAt(0).toUpperCase();
 }
 
-export function HomeLanding() {
-  const emailSignupRef = useRef<HTMLElement>(null);
-  const [inlineIntent, setInlineIntent] = useState<AuthIntent>("signup");
+export function HomeLanding({
+  starterPriceId,
+}: {
+  starterPriceId: string;
+}) {
+  const router = useRouter();
+  const [inlineIntent, setInlineIntent] = useState<"signup" | "signin">("signup");
   const [signInModalOpen, setSignInModalOpen] = useState(false);
+  const [signupOpen, setSignupOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
@@ -32,13 +39,15 @@ export function HomeLanding() {
     return () => subscription.unsubscribe();
   }, []);
 
-  const goToAuth = useCallback((intent: AuthIntent) => {
-    setInlineIntent(intent);
-    window.setTimeout(() => {
-      const el = emailSignupRef.current ?? document.getElementById("email-signup");
-      el?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 0);
-  }, []);
+  function onStartFreeTrial() {
+    if (user) {
+      savePendingPlan({ plan: "starter", priceId: starterPriceId });
+      router.push("/pricing");
+      return;
+    }
+    savePendingPlan({ plan: "starter", priceId: starterPriceId });
+    setSignupOpen(true);
+  }
 
   return (
     <div className="min-h-screen bg-white text-[#0D0D0D]">
@@ -56,7 +65,7 @@ export function HomeLanding() {
             </div>
           ) : (
             <div className="flex items-center gap-6 text-sm text-[#0D0D0D]">
-              <button type="button" onClick={() => goToAuth("signup")}>Get started</button>
+              <button type="button" onClick={onStartFreeTrial}>Get started</button>
               <button type="button" onClick={() => setSignInModalOpen(true)}>Sign in</button>
             </div>
           )}
@@ -93,7 +102,7 @@ export function HomeLanding() {
                 <div className="mt-10 flex flex-wrap items-center gap-6">
                   <button
                     type="button"
-                    onClick={() => goToAuth("signup")}
+                    onClick={onStartFreeTrial}
                     className="bg-[#1B4332] px-6 py-3 text-sm font-medium text-white"
                   >
                     Get started
@@ -268,7 +277,7 @@ export function HomeLanding() {
           </div>
         </section>
 
-        <section ref={emailSignupRef} id="email-signup" className="bg-[#F7F7F5] py-24">
+        <section className="bg-[#F7F7F5] py-24">
           <div className="mx-auto w-full max-w-[1200px] px-6">
             <SectionReveal>
               <p className="text-sm uppercase tracking-[0.22em] text-[#1B4332]">Pricing</p>
@@ -285,12 +294,13 @@ export function HomeLanding() {
                     <p>Gmail Add-On</p>
                     <p>QuickBooks sync</p>
                   </div>
-                  <Link
-                    href="/pricing"
+                  <button
+                    type="button"
+                    onClick={onStartFreeTrial}
                     className="mt-10 flex w-full items-center justify-center border border-[#1B4332] py-3 text-sm font-medium text-[#1B4332]"
                   >
                     Start free trial
-                  </Link>
+                  </button>
                 </article>
 
                 <article className="border border-[#1B4332] bg-[#1B4332]/[0.05] p-8">
@@ -307,12 +317,13 @@ export function HomeLanding() {
                     <p>Priority support</p>
                     <p>Advanced recovery workflows</p>
                   </div>
-                  <Link
-                    href="/pricing"
+                  <button
+                    type="button"
+                    onClick={onStartFreeTrial}
                     className="mt-10 flex w-full items-center justify-center bg-[#1B4332] py-3 text-sm font-medium text-white"
                   >
                     Get started
-                  </Link>
+                  </button>
                 </article>
               </div>
 
@@ -378,6 +389,13 @@ export function HomeLanding() {
           </div>
         </div>
       )}
+      <SignupModal
+        open={signupOpen}
+        onClose={() => setSignupOpen(false)}
+        plan="starter"
+        priceId={starterPriceId}
+        priceLabel="$29/month"
+      />
     </div>
   );
 }

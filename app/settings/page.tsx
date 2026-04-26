@@ -1,4 +1,5 @@
 import { SettingsClient } from "@/components/SettingsClient";
+import { Nav } from "@/components/Nav";
 import { planNameFromStripePriceId } from "@/lib/billing/plan-name";
 import { createClient } from "@/lib/supabase/server";
 import type { QuickBooksToken } from "@/lib/types";
@@ -32,8 +33,9 @@ export default async function SettingsPage() {
       : "";
 
   return (
-    <main className="min-h-screen bg-white px-6 py-12 text-[#0D0D0D]">
-      <div className="mx-auto max-w-[1200px]">
+    <main className="min-h-screen bg-white text-[#0D0D0D]">
+      <Nav userEmail={user.email ?? null} />
+      <div className="mx-auto max-w-[1200px] px-6 py-12">
         <SettingsClient
           email={user.email ?? profile?.email ?? ""}
           quickbooksConnected={profile?.quickbooks_token != null}

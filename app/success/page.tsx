@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Nav } from "@/components/Nav";
 import { createClient } from "@/lib/supabase/server";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
@@ -54,16 +55,7 @@ export default async function SubscriptionSuccessPage() {
 
   return (
     <main className="min-h-screen bg-white text-[#0D0D0D]">
-      <nav className="border-b border-[#E5E5E5] bg-white">
-        <div className="mx-auto flex max-w-[1200px] items-center justify-between px-6 py-5">
-          <Link href="/" className="font-display text-3xl text-[#0D0D0D]">
-            Paid
-          </Link>
-          <Link href="/dashboard" className="text-sm text-[#6B6B6B] hover:text-[#0D0D0D]">
-            Dashboard
-          </Link>
-        </div>
-      </nav>
+      <Nav userEmail={user.email ?? null} />
 
       <div className="mx-auto max-w-xl px-6 py-16 md:py-20">
         <div className="flex flex-col items-center text-center">

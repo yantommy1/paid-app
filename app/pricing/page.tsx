@@ -1,12 +1,9 @@
+import { Nav } from "@/components/Nav";
 import { PricingPlans } from "@/components/pricing/PricingPlans";
 import { createClient } from "@/lib/supabase/server";
-import { postLoginPathForState } from "@/lib/auth/post-login-path";
+import { getUserRoutingState, postLoginPathForState } from "@/lib/auth/post-login-path";
 import type { Metadata } from "next";
-import Link from "next/link";
 import { redirect } from "next/navigation";
-
-const APP_BASE =
-  (process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || "https://paid-app.com") as string;
 
 export const metadata: Metadata = {
   title: "Pricing — Paid",
@@ -24,22 +21,12 @@ export default async function PricingPage({
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) {
-    redirect(`${APP_BASE}/#email-signup`);
-  }
-
-  const { data: profile } = await supabase
-    .from("users")
-    .select("onboarding_completed, subscription_status")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  const destination = postLoginPathForState({
-    onboardingCompleted: profile?.onboarding_completed === true,
-    subscriptionStatus: (profile?.subscription_status as string | null) ?? null,
-  });
-  if (destination !== "/pricing") {
-    redirect(destination);
+  if (user) {
+    const state = await getUserRoutingState(supabase, user.id);
+    const destination = postLoginPathForState(state);
+    if (destination === "/dashboard") {
+      redirect("/dashboard");
+    }
   }
 
   const sp = await searchParams;
@@ -48,16 +35,7 @@ export default async function PricingPage({
 
   return (
     <main className="min-h-screen bg-white text-[#0D0D0D]">
-      <nav className="border-b border-[#E5E5E5] bg-white">
-        <div className="mx-auto flex max-w-[1200px] items-center justify-between px-6 py-5">
-          <Link href="/" className="font-display text-3xl text-[#0D0D0D]">
-            Paid
-          </Link>
-          <Link href="/dashboard" className="text-sm text-[#6B6B6B] hover:text-[#0D0D0D]">
-            Dashboard
-          </Link>
-        </div>
-      </nav>
+      <Nav userEmail={user?.email ?? null} />
 
       <div className="mx-auto max-w-[1200px] px-6 py-14">
         {showCanceled && (
@@ -73,6 +51,8 @@ export default async function PricingPage({
         <PricingPlans
           starterPriceId={process.env.STRIPE_STARTER_PRICE_ID?.trim() ?? ""}
           proPriceId={process.env.STRIPE_PRO_PRICE_ID?.trim() ?? ""}
+          loggedIn={!!user}
+          initialEmail=""
         />
       </div>
     </main>

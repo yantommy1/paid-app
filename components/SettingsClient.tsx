@@ -1,7 +1,6 @@
 "use client";
 
 import { BillingSection } from "@/components/settings/BillingSection";
-import { createClient } from "@/lib/supabase/browser";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -55,13 +54,6 @@ export function SettingsClient({
   useEffect(() => {
     void loadApiKey();
   }, []);
-
-  async function signOut() {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    router.push("/");
-    router.refresh();
-  }
 
   async function disconnectQuickBooks() {
     setQbBusy(true);
@@ -155,7 +147,6 @@ export function SettingsClient({
     <div className="space-y-10">
       <header className="flex flex-col gap-6 border-b border-[#E5E5E5] pb-10 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-4">
-          <Link href="/" className="font-display text-3xl">Paid</Link>
           <Link href="/dashboard" className="inline-flex items-center gap-2 text-sm text-[#6B6B6B]">← Back to dashboard</Link>
           <p className="text-sm text-[#6B6B6B]">Signed in as {email}</p>
         </div>
@@ -259,10 +250,6 @@ export function SettingsClient({
           </p>
         )}
       </section>
-
-      <div className="border-t border-[#E5E5E5] pt-10">
-        <button type="button" onClick={() => void signOut()} className="border border-[#1B4332] px-5 py-2.5 text-sm text-[#1B4332]">Sign out</button>
-      </div>
     </div>
   );
 }
