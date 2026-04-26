@@ -1,8 +1,5 @@
 import { HomeLanding } from "@/components/landing/HomeLanding";
-import { getUserRoutingState, postLoginPathForState } from "@/lib/auth/post-login-path";
-import { createClient } from "@/lib/supabase/server";
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
 
 export const metadata: Metadata = {
   title: "Paid — AI invoice reminders for faster collections",
@@ -10,22 +7,6 @@ export const metadata: Metadata = {
     "Paid helps professional services firms collect overdue invoices with AI-drafted reminders sent from Gmail.",
 };
 
-export default async function HomePage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (user) {
-    const state = await getUserRoutingState(supabase, user.id);
-    console.info("[routing:home]", {
-      userId: user.id,
-      onboardingCompleted: state.onboardingCompleted,
-      subscriptionStatus: state.subscriptionStatus,
-      destination: postLoginPathForState(state),
-    });
-    redirect(postLoginPathForState(state));
-  }
-
+export default function HomePage() {
   return <HomeLanding starterPriceId={process.env.STRIPE_STARTER_PRICE_ID?.trim() ?? ""} />;
 }
