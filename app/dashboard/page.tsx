@@ -35,23 +35,11 @@ export default async function DashboardPage({
     .eq("id", user.id)
     .maybeSingle();
 
-  if (!profile || profile.onboarding_completed === false) {
-    redirect("/onboarding");
-  }
-
-  const subStatus = profile.subscription_status as string | null;
-
-  if (subStatus == null) {
-    redirect("/pricing");
-  }
-
-  if (subStatus === "canceled" || subStatus === "incomplete") {
-    redirect("/pricing?canceled=1");
-  }
+  const subStatus = (profile?.subscription_status as string | null) ?? null;
 
   const showPastDue = subStatus === "past_due";
   const showTrialing = subStatus === "trialing";
-  const trialEndsAt = profile.trial_ends_at as string | null;
+  const trialEndsAt = (profile?.trial_ends_at as string | null) ?? null;
   const trialDays = trialEndsAt ? trialDaysRemaining(trialEndsAt) : null;
 
   const sp = await searchParams;

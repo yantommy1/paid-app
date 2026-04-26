@@ -1,9 +1,7 @@
 import { Nav } from "@/components/Nav";
 import { PricingPlans } from "@/components/pricing/PricingPlans";
 import { createClient } from "@/lib/supabase/server";
-import { getUserRoutingState, postLoginPathForState } from "@/lib/auth/post-login-path";
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
 
 export const metadata: Metadata = {
   title: "Pricing — Paid",
@@ -20,14 +18,6 @@ export default async function PricingPage({
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
-  if (user) {
-    const state = await getUserRoutingState(supabase, user.id);
-    const destination = postLoginPathForState(state);
-    if (destination === "/dashboard") {
-      redirect("/dashboard");
-    }
-  }
 
   const sp = await searchParams;
   const showCanceled =
