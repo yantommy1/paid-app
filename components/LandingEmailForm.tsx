@@ -1,7 +1,9 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/browser";
-import { useState } from "react";
+import { postLoginPathForState } from "@/lib/auth/post-login-path";
+import { useRouter } from "next/navigation";
+import { useId, useState } from "react";
 
 export type AuthIntent = "signup" | "signin";
 type Variant = "light" | "dark";
@@ -27,11 +29,38 @@ export function mapAuthError(raw: string | undefined): string {
   return raw;
 }
 
+async function redirectAfterSession(router: ReturnType<typeof useRouter>) {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return;
+  const { data: profile } = await supabase
+    .from("users")
+    .select("onboarding_completed, subscription_status")
+    .eq("id", user.id)
+    .maybeSingle();
+  router.push(
+    postLoginPathForState({
+      onboardingCompleted: profile?.onboarding_completed === true,
+      subscriptionStatus: (profile?.subscription_status as string | null) ?? null,
+    })
+  );
+  router.refresh();
+}
+
 export function LandingEmailForm({ variant = "light", intent = "signup" }: Props) {
+  const router = useRouter();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
   const [message, setMessage] = useState("");
-  void variant;
-  void intent;
+  const emailId = useId();
+  const passwordId = useId();
+  const inputClass =
+    variant === "light"
+      ? "w-full border border-[#E5E5E5] px-3 py-2.5 text-sm text-[#0D0D0D] outline-none focus:border-[#1B4332]"
+      : "w-full border border-[#E5E5E5] px-3 py-2.5 text-sm text-[#0D0D0D] outline-none focus:border-[#1B4332]";
 
   async function signInWithGoogle() {
     setStatus("loading");
@@ -54,6 +83,52 @@ export function LandingEmailForm({ variant = "light", intent = "signup" }: Props
     }
   }
 
+  async function onPasswordSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setStatus("loading");
+    setMessage("");
+    const supabase = createClient();
+    if (!email.trim() || !password.trim()) {
+      setStatus("error");
+      setMessage("Enter your email and password.");
+      return;
+    }
+    try {
+      if (intent === "signup") {
+        const { data, error } = await supabase.auth.signUp({
+          email: email.trim().toLowerCase(),
+          password,
+        });
+        if (error) {
+          setStatus("error");
+          setMessage(mapAuthError(error.message));
+          return;
+        }
+        if (data.session) {
+          await redirectAfterSession(router);
+          return;
+        }
+        setStatus("error");
+        setMessage("Check your email to confirm your account, then sign in.");
+        return;
+      }
+
+      const { error } = await supabase.auth.signInWithPassword({
+        email: email.trim().toLowerCase(),
+        password,
+      });
+      if (error) {
+        setStatus("error");
+        setMessage(mapAuthError(error.message));
+        return;
+      }
+      await redirectAfterSession(router);
+    } catch {
+      setStatus("error");
+      setMessage("Something went wrong. Please try again.");
+    }
+  }
+
   return (
     <div className="space-y-4">
       <button
@@ -70,6 +145,50 @@ export function LandingEmailForm({ variant = "light", intent = "signup" }: Props
         </svg>
         Continue with Google
       </button>
+
+      <div className="flex items-center gap-3">
+        <span className="h-px flex-1 bg-[#E5E5E5]" />
+        <span className="text-xs text-[#6B6B6B]">or continue with email</span>
+        <span className="h-px flex-1 bg-[#E5E5E5]" />
+      </div>
+
+      <form onSubmit={onPasswordSubmit} className="space-y-4">
+        <div>
+          <label htmlFor={emailId} className="mb-1 block text-sm text-[#6B6B6B]">
+            Work email
+          </label>
+          <input
+            id={emailId}
+            type="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className={inputClass}
+            placeholder="you@firm.com"
+          />
+        </div>
+        <div>
+          <label htmlFor={passwordId} className="mb-1 block text-sm text-[#6B6B6B]">
+            Password
+          </label>
+          <input
+            id={passwordId}
+            type="password"
+            required
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className={inputClass}
+            placeholder="Password"
+          />
+        </div>
+        <button
+          type="submit"
+          disabled={status === "loading"}
+          className="w-full bg-[#1B4332] py-2.5 text-sm font-medium text-white disabled:opacity-60"
+        >
+          {status === "loading" ? "Working..." : intent === "signup" ? "Create account" : "Sign in"}
+        </button>
+      </form>
 
       {message && (
         <p className={`text-sm ${status === "error" ? "text-red-600" : "text-[#1B4332]"}`}>
