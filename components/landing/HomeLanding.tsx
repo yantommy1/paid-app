@@ -5,31 +5,31 @@ import { EmailCaptureModal } from "@/components/EmailCaptureModal";
 import { GmailSidebarMockup } from "@/components/landing/GmailSidebarMockup";
 import { SectionReveal } from "@/components/landing/SectionReveal";
 import { SmartLogoLink } from "@/components/SmartLogoLink";
-import { getUserDisplayName } from "@/lib/auth/display-name";
-import { createClient } from "@/lib/supabase/browser";
-import type { User } from "@supabase/supabase-js";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-function navAvatarLetter(user: User): string {
-  const displayName = getUserDisplayName(user);
-  const trimmed = displayName.trim();
+function navAvatarLetter(displayName: string | null): string {
+  const trimmed = (displayName ?? "").trim();
   if (trimmed.length > 0) return trimmed.charAt(0).toUpperCase();
-  return (user.email ?? "?").charAt(0).toUpperCase();
+  return "?";
 }
 
 export function HomeLanding({
   starterPriceId,
   proPriceId,
+  isLoggedIn,
+  userEmail,
+  userDisplayName,
 }: {
   starterPriceId: string;
   proPriceId: string;
+  isLoggedIn: boolean;
+  userEmail: string | null;
+  userDisplayName: string | null;
 }) {
   const [signInModalOpen, setSignInModalOpen] = useState(false);
   const [navShadow, setNavShadow] = useState(false);
   const [openPlan, setOpenPlan] = useState<"starter" | "pro" | null>(null);
-  const [user, setUser] = useState<User | null>(null);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [summary, setSummary] = useState<{
     totalOutstanding: number;
     overdueInvoiceCount: number;
@@ -37,22 +37,7 @@ export function HomeLanding({
   } | null>(null);
 
   useEffect(() => {
-    const supabase = createClient();
-    void supabase.auth.getSession().then(({ data: { session } }) => {
-      setIsLoggedIn(Boolean(session?.user));
-      setUser(session?.user ?? null);
-    });
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_, session) => {
-      setIsLoggedIn(Boolean(session?.user));
-      setUser(session?.user ?? null);
-    });
-    return () => subscription.unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    if (!user) {
+    if (!isLoggedIn) {
       setSummary(null);
       return;
     }
@@ -80,7 +65,7 @@ export function HomeLanding({
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [isLoggedIn]);
 
   useEffect(() => {
     const onScroll = () => setNavShadow(window.scrollY > 8);
@@ -108,7 +93,7 @@ export function HomeLanding({
           {isLoggedIn ? (
             <div className="flex items-center gap-3">
               <span className="flex h-8 w-8 items-center justify-center rounded-full border border-[#E5E5E5] text-sm text-[#0D0D0D]">
-                {user ? navAvatarLetter(user) : "?"}
+                {navAvatarLetter(userDisplayName)}
               </span>
               <Link href="/dashboard" className="text-sm text-[#0D0D0D]">
                 Dashboard
@@ -304,103 +289,106 @@ export function HomeLanding({
         )}
 
         {!isLoggedIn ? (
-        <section className="bg-white py-24">
-          <div className="mx-auto w-full max-w-[1200px] px-6">
-            <SectionReveal>
-              <p className="text-sm uppercase tracking-[0.22em] text-[#1B4332]">Testimonials</p>
-              <h2 className="mt-3 font-display text-5xl text-[#0D0D0D]">What firms say after switching to Paid</h2>
-              <div className="mt-12 grid gap-6 md:grid-cols-3">
-                {[
-                  {
-                    quote:
-                      "We had $47,000 sitting in overdue invoices. Paid recovered $38,000 of it in the first month without a single awkward phone call.",
-                    name: "Sarah Chen",
-                    title: "Managing Partner, Chen & Associates Law",
-                  },
-                  {
-                    quote:
-                      "I used to spend two hours every Friday chasing payments. Now I open Gmail and Paid has already sent the reminders. I haven't thought about AR in weeks.",
-                    name: "Marcus Webb",
-                    title: "Principal, Webb Architecture",
-                  },
-                  {
-                    quote:
-                      "Our average collection time went from 67 days to 23 days. The reminders sound exactly like something I would write — clients don't even know it's automated.",
-                    name: "Priya Nair",
-                    title: "Founder, Nair Consulting Group",
-                  },
-                ].map((t) => (
-                  <article key={t.name} className="border border-[#E5E5E5] bg-white p-6 shadow-sm">
-                    <p className="font-display text-[80px] leading-none text-[#1B4332]">“</p>
-                    <p className="mt-4 font-display text-xl leading-relaxed text-[#0D0D0D]">{t.quote}</p>
-                    <p className="mt-6 text-sm font-semibold text-[#0D0D0D]">{t.name}</p>
-                    <p className="mt-1 text-sm text-[#6B6B6B]">{t.title}</p>
-                  </article>
-                ))}
-              </div>
-            </SectionReveal>
-          </div>
-        </section>
-        ) : (
-        <section className="bg-[#F7F7F5] py-24">
-          <div className="mx-auto w-full max-w-[1200px] px-6">
-            <SectionReveal>
-              <div className="mx-auto max-w-3xl border border-[#E5E5E5] bg-white p-10 text-center">
-                <p className="text-sm uppercase tracking-[0.2em] text-[#1B4332]">Welcome back</p>
-                <h2 className="mt-3 font-display text-4xl text-[#0D0D0D]">
-                  Welcome back, {user ? getUserDisplayName(user) : "there"}
+          <section className="bg-white py-24">
+            <div className="mx-auto w-full max-w-[1200px] px-6">
+              <SectionReveal>
+                <p className="text-sm uppercase tracking-[0.22em] text-[#1B4332]">Testimonials</p>
+                <h2 className="mt-3 font-display text-5xl text-[#0D0D0D]">
+                  What firms say after switching to Paid
                 </h2>
-                <div className="mt-10 grid gap-4 sm:grid-cols-3">
-                  <article className="border border-[#E5E5E5] bg-white p-4">
-                    <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-[#6B6B6B]">
-                      Total outstanding
-                    </p>
-                    <p className="mt-2 font-display text-3xl text-[#0D0D0D]">
-                      $
-                      {(summary?.totalOutstanding ?? 0).toLocaleString(undefined, {
-                        maximumFractionDigits: 0,
-                      })}
-                    </p>
-                  </article>
-                  <article className="border border-[#E5E5E5] bg-white p-4">
-                    <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-[#6B6B6B]">
-                      Overdue invoices
-                    </p>
-                    <p className="mt-2 font-display text-3xl text-[#0D0D0D]">
-                      {summary?.overdueInvoiceCount ?? 0}
-                    </p>
-                  </article>
-                  <article className="border border-[#E5E5E5] bg-white p-4">
-                    <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-[#6B6B6B]">
-                      Clients overdue
-                    </p>
-                    <p className="mt-2 font-display text-3xl text-[#0D0D0D]">
-                      {summary?.overdueClientCount ?? 0}
-                    </p>
-                  </article>
+                <div className="mt-12 grid gap-6 md:grid-cols-3">
+                  {[
+                    {
+                      quote:
+                        "We had $47,000 sitting in overdue invoices. Paid recovered $38,000 of it in the first month without a single awkward phone call.",
+                      name: "Sarah Chen",
+                      title: "Managing Partner, Chen & Associates Law",
+                    },
+                    {
+                      quote:
+                        "I used to spend two hours every Friday chasing payments. Now I open Gmail and Paid has already sent the reminders. I haven't thought about AR in weeks.",
+                      name: "Marcus Webb",
+                      title: "Principal, Webb Architecture",
+                    },
+                    {
+                      quote:
+                        "Our average collection time went from 67 days to 23 days. The reminders sound exactly like something I would write — clients don't even know it's automated.",
+                      name: "Priya Nair",
+                      title: "Founder, Nair Consulting Group",
+                    },
+                  ].map((t) => (
+                    <article key={t.name} className="border border-[#E5E5E5] bg-white p-6 shadow-sm">
+                      <p className="font-display text-[80px] leading-none text-[#1B4332]">“</p>
+                      <p className="mt-4 font-display text-xl leading-relaxed text-[#0D0D0D]">{t.quote}</p>
+                      <p className="mt-6 text-sm font-semibold text-[#0D0D0D]">{t.name}</p>
+                      <p className="mt-1 text-sm text-[#6B6B6B]">{t.title}</p>
+                    </article>
+                  ))}
                 </div>
-                <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
-                  <Link
-                    href="/dashboard"
-                    className="inline-flex items-center justify-center bg-[#1B4332] px-6 py-3 text-sm font-medium text-white"
-                  >
-                    Go to dashboard
-                  </Link>
-                  <a
-                    href="https://mail.google.com"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center justify-center border border-[#E5E5E5] bg-white px-6 py-3 text-sm font-medium text-[#0D0D0D]"
-                  >
-                    Open Gmail
-                  </a>
+              </SectionReveal>
+            </div>
+          </section>
+        ) : (
+          <section className="bg-[#F7F7F5] py-24">
+            <div className="mx-auto w-full max-w-[1200px] px-6">
+              <SectionReveal>
+                <div className="mx-auto max-w-3xl border border-[#E5E5E5] bg-white p-10 text-center">
+                  <p className="text-sm uppercase tracking-[0.2em] text-[#1B4332]">Welcome back</p>
+                  <h2 className="mt-3 font-display text-4xl text-[#0D0D0D]">
+                    Welcome back, {userDisplayName ?? "there"}
+                  </h2>
+                  <div className="mt-10 grid gap-4 sm:grid-cols-3">
+                    <article className="border border-[#E5E5E5] bg-white p-4">
+                      <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-[#6B6B6B]">
+                        Total outstanding
+                      </p>
+                      <p className="mt-2 font-display text-3xl text-[#0D0D0D]">
+                        $
+                        {(summary?.totalOutstanding ?? 0).toLocaleString(undefined, {
+                          maximumFractionDigits: 0,
+                        })}
+                      </p>
+                    </article>
+                    <article className="border border-[#E5E5E5] bg-white p-4">
+                      <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-[#6B6B6B]">
+                        Overdue invoices
+                      </p>
+                      <p className="mt-2 font-display text-3xl text-[#0D0D0D]">
+                        {summary?.overdueInvoiceCount ?? 0}
+                      </p>
+                    </article>
+                    <article className="border border-[#E5E5E5] bg-white p-4">
+                      <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-[#6B6B6B]">
+                        Clients overdue
+                      </p>
+                      <p className="mt-2 font-display text-3xl text-[#0D0D0D]">
+                        {summary?.overdueClientCount ?? 0}
+                      </p>
+                    </article>
+                  </div>
+                  <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
+                    <Link
+                      href="/dashboard"
+                      className="inline-flex items-center justify-center bg-[#1B4332] px-6 py-3 text-sm font-medium text-white"
+                    >
+                      Go to dashboard
+                    </Link>
+                    <a
+                      href="https://mail.google.com"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center justify-center border border-[#E5E5E5] bg-white px-6 py-3 text-sm font-medium text-[#0D0D0D]"
+                    >
+                      Open Gmail
+                    </a>
+                  </div>
                 </div>
-              </div>
-            </SectionReveal>
-          </div>
-        </section>
+              </SectionReveal>
+            </div>
+          </section>
         )}
 
+        {!isLoggedIn && (
         <section className="bg-[#F7F7F5] py-24">
           <div className="mx-auto w-full max-w-[1200px] px-6">
             <SectionReveal>
@@ -463,6 +451,7 @@ export function HomeLanding({
             </SectionReveal>
           </div>
         </section>
+        )}
 
         <section className="bg-[#1B4332] py-20 text-white">
           <div className="mx-auto max-w-[1200px] px-6 text-center">
@@ -515,8 +504,8 @@ export function HomeLanding({
           onClose={() => setOpenPlan(null)}
           plan={openPlan}
           priceId={openPlan === "starter" ? starterPriceId : proPriceId}
-          initialEmail={user?.email ?? null}
-          skipCapture={Boolean(isLoggedIn && user?.email)}
+          initialEmail={userEmail}
+          skipCapture={Boolean(isLoggedIn && userEmail)}
         />
       )}
     </div>

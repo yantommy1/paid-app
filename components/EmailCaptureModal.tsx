@@ -20,8 +20,10 @@ export function EmailCaptureModal({
   skipCapture = false,
 }: Props) {
   const emailId = useId();
-  const nameId = useId();
+  const firstNameId = useId();
+  const lastNameId = useId();
   const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState(initialEmail ?? "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,10 +32,21 @@ export function EmailCaptureModal({
     if (!isOpen) return;
     setEmail(initialEmail ?? "");
     setFirstName("");
+    setLastName("");
     setError(null);
   }, [isOpen, initialEmail]);
 
-  const startCheckout = useCallback(async (checkoutEmail: string, checkoutName?: string) => {
+  const trialEndsDisplay = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString(
+    "en-US",
+    {
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+    }
+  );
+
+  const startCheckout = useCallback(
+    async (checkoutEmail: string, first?: string, last?: string) => {
     setLoading(true);
     setError(null);
     try {
@@ -42,7 +55,9 @@ export function EmailCaptureModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           email: checkoutEmail,
-          name: checkoutName?.trim() || undefined,
+          fullName: [first?.trim(), last?.trim()].filter(Boolean).join(" ") || undefined,
+          firstName: first?.trim() || undefined,
+          lastName: last?.trim() || undefined,
           priceId,
           plan,
         }),
@@ -60,7 +75,9 @@ export function EmailCaptureModal({
     } finally {
       setLoading(false);
     }
-  }, [plan, priceId]);
+    },
+    [plan, priceId]
+  );
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -69,7 +86,7 @@ export function EmailCaptureModal({
       setError("Please enter your email.");
       return;
     }
-    await startCheckout(normalized, firstName);
+    await startCheckout(normalized, firstName, lastName);
   }
 
   useEffect(() => {
@@ -92,17 +109,31 @@ export function EmailCaptureModal({
         {!skipCapture && (
           <form className="space-y-4" onSubmit={onSubmit}>
             <div>
-              <label htmlFor={nameId} className="mb-1 block text-sm text-[#6B6B6B]">
+              <label htmlFor={firstNameId} className="mb-1 block text-sm text-[#6B6B6B]">
                 First name
               </label>
               <input
-                id={nameId}
+                id={firstNameId}
                 type="text"
                 value={firstName}
                 required
                 onChange={(e) => setFirstName(e.target.value)}
                 className="w-full border border-[#E5E5E5] bg-white px-3 py-2.5 text-sm text-[#0D0D0D] outline-none focus:border-[#1B4332]"
                 placeholder="Tommy"
+              />
+            </div>
+            <div>
+              <label htmlFor={lastNameId} className="mb-1 block text-sm text-[#6B6B6B]">
+                Last name
+              </label>
+              <input
+                id={lastNameId}
+                type="text"
+                value={lastName}
+                required
+                onChange={(e) => setLastName(e.target.value)}
+                className="w-full border border-[#E5E5E5] bg-white px-3 py-2.5 text-sm text-[#0D0D0D] outline-none focus:border-[#1B4332]"
+                placeholder="Yan"
               />
             </div>
             <div>
@@ -144,7 +175,7 @@ export function EmailCaptureModal({
         )}
 
         <p className="mt-4 text-xs text-[#6B6B6B]">
-          30-day free trial. Cancel anytime before day 31.
+          30-day free trial. Cancel anytime before {trialEndsDisplay}.
         </p>
         {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
       </div>

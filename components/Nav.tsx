@@ -9,6 +9,7 @@ import { useMemo, useState } from "react";
 type NavProps = {
   userEmail?: string | null;
   userDisplayName?: string | null;
+  authenticated?: boolean;
 };
 
 function initialForEmail(email: string | null | undefined): string {
@@ -16,12 +17,12 @@ function initialForEmail(email: string | null | undefined): string {
   return value.length > 0 ? value.charAt(0).toUpperCase() : "?";
 }
 
-export function Nav({ userEmail = null, userDisplayName = null }: NavProps) {
+export function Nav({ userEmail = null, userDisplayName = null, authenticated }: NavProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const initials = useMemo(() => initialForEmail(userEmail), [userEmail]);
-  const loggedIn = !!userEmail;
+  const loggedIn = authenticated ?? !!userEmail;
 
   async function handleSignOut() {
     setSigningOut(true);

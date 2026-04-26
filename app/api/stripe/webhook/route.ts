@@ -11,7 +11,11 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 import type Stripe from "stripe";
 
-async function ensureUserForCheckoutEmail(email: string, firstName?: string) {
+async function ensureUserForCheckoutEmail(
+  email: string,
+  firstName?: string,
+  lastName?: string
+) {
   const admin = createAdminClient();
   const normalizedEmail = email.trim().toLowerCase();
 
@@ -24,13 +28,15 @@ async function ensureUserForCheckoutEmail(email: string, firstName?: string) {
     return String(existingUserRow.id);
   }
 
+  const fullName = [firstName?.trim(), lastName?.trim()].filter(Boolean).join(" ");
+
   const created = await admin.auth.admin.createUser({
     email: normalizedEmail,
     email_confirm: true,
-    user_metadata: firstName
+    user_metadata: fullName
       ? {
-          name: firstName,
-          full_name: firstName,
+          name: fullName,
+          full_name: fullName,
         }
       : undefined,
   });
@@ -43,7 +49,7 @@ async function ensureUserForCheckoutEmail(email: string, firstName?: string) {
       id: created.data.user.id,
       email: normalizedEmail,
       onboarding_completed: false,
-      name: firstName ?? null,
+      name: fullName || null,
     },
     { onConflict: "id" }
   );
@@ -115,6 +121,9 @@ export async function POST(request: NextRequest) {
         .trim()
         .toLowerCase();
       const checkoutName = (session.metadata?.checkout_name ?? "").trim();
+      const checkoutFullName = (session.metadata?.checkout_full_name ?? "").trim();
+      const checkoutFirstName = (session.metadata?.checkout_first_name ?? "").trim();
+      const checkoutLastName = (session.metadata?.checkout_last_name ?? "").trim();
 
       if (session.mode === "subscription" && purpose === "saas_subscription" && checkoutEmail) {
         const subRef = session.subscription;
@@ -126,7 +135,8 @@ export async function POST(request: NextRequest) {
           try {
             const userId = await ensureUserForCheckoutEmail(
               checkoutEmail,
-              checkoutName || undefined
+              checkoutFirstName || checkoutFullName || checkoutName || undefined,
+              checkoutLastName || undefined
             );
             const subscription = await stripe.subscriptions.retrieve(subId, {
               expand: ["items.data.price"],

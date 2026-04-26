@@ -7,7 +7,9 @@ const BodySchema = z.object({
   priceId: z.string().min(1),
   plan: z.enum(["starter", "pro"]).optional(),
   email: z.string().email(),
-  name: z.string().trim().min(1).max(80).optional(),
+  fullName: z.string().trim().min(1).max(160).optional(),
+  firstName: z.string().trim().min(1).max(80).optional(),
+  lastName: z.string().trim().min(1).max(80).optional(),
 });
 
 const APP_BASE = "https://paid-app.com";
@@ -46,7 +48,7 @@ export async function POST(request: NextRequest) {
     return serverError("Invalid payload", 400);
   }
 
-  const { priceId, plan, email, name } = payload.data;
+  const { priceId, plan, email, fullName, firstName, lastName } = payload.data;
   if (priceId !== starter && priceId !== pro) {
     console.error("[create-checkout] Invalid priceId", { priceId });
     return serverError("Invalid priceId", 400);
@@ -63,7 +65,8 @@ export async function POST(request: NextRequest) {
 
   try {
     const normalizedEmail = email.trim().toLowerCase();
-    const normalizedName = name?.trim() || undefined;
+    const normalizedName =
+      fullName?.trim() || [firstName?.trim(), lastName?.trim()].filter(Boolean).join(" ") || undefined;
     const customerSearch = await stripe.customers.list({
       email: normalizedEmail,
       limit: 1,
@@ -89,7 +92,6 @@ export async function POST(request: NextRequest) {
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer: customerId,
-      customer_email: normalizedEmail,
       line_items: [{ price: priceId, quantity: 1 }],
       payment_method_collection: "always",
       subscription_data: {
@@ -100,6 +102,9 @@ export async function POST(request: NextRequest) {
       cancel_url: CANCEL_URL,
       metadata: {
         checkout_email: normalizedEmail,
+        checkout_full_name: normalizedName ?? "",
+        checkout_first_name: firstName?.trim() ?? "",
+        checkout_last_name: lastName?.trim() ?? "",
         checkout_name: normalizedName ?? "",
         plan: plan ?? "starter",
         checkout_purpose: "saas_subscription",

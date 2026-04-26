@@ -35,7 +35,7 @@ export default async function SettingsPage() {
 
   return (
     <main className="min-h-screen bg-white text-[#0D0D0D]">
-      <Nav userEmail={user.email ?? null} userDisplayName={getUserDisplayName(user)} />
+      <Nav authenticated userEmail={user.email ?? null} userDisplayName={getUserDisplayName(user)} />
       <div className="mx-auto max-w-[1200px] px-6 py-12">
         <SettingsClient
           displayName={getUserDisplayName(user)}

@@ -62,7 +62,7 @@ export default async function DashboardPage({
 
   return (
     <main className="min-h-screen bg-white text-[#0D0D0D]">
-      <Nav userEmail={user.email ?? null} userDisplayName={getUserDisplayName(user)} />
+      <Nav authenticated userEmail={user.email ?? null} userDisplayName={getUserDisplayName(user)} />
       <div className="mx-auto w-full max-w-[1200px] px-6 py-8">
         {showSubSuccess && (
           <div className="mb-6 rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
