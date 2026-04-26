@@ -13,7 +13,11 @@ function normalizeSubscriptionStatus(value: unknown): string | null {
 
 export function postLoginPathForState(state: UserRoutingState): string {
   if (!state.onboardingCompleted) return "/onboarding";
-  if (state.subscriptionStatus === "trialing" || state.subscriptionStatus === "active") {
+  if (
+    state.subscriptionStatus == null ||
+    state.subscriptionStatus === "trialing" ||
+    state.subscriptionStatus === "active"
+  ) {
     return "/dashboard";
   }
   return "/pricing";

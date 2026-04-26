@@ -18,6 +18,12 @@ export default async function HomePage() {
 
   if (user) {
     const state = await getUserRoutingState(supabase, user.id);
+    console.info("[routing:home]", {
+      userId: user.id,
+      onboardingCompleted: state.onboardingCompleted,
+      subscriptionStatus: state.subscriptionStatus,
+      destination: postLoginPathForState(state),
+    });
     redirect(postLoginPathForState(state));
   }
 

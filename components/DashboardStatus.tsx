@@ -1,6 +1,7 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/browser";
+import { SmartLogoLink } from "@/components/SmartLogoLink";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
@@ -93,7 +94,7 @@ export function DashboardStatus() {
     <div className="min-h-screen bg-white px-6 py-10 text-[#0D0D0D]">
       <div className="mx-auto flex w-full max-w-[1200px] flex-col">
         <header className="mb-12 flex flex-wrap items-center justify-between gap-4 border-b border-[#E5E5E5] pb-6">
-          <Link href="/" className="font-display text-3xl text-[#0D0D0D]">Paid</Link>
+          <SmartLogoLink loggedIn className="font-display text-3xl text-[#0D0D0D]" />
           <nav className="flex flex-wrap items-center gap-6">
             <Link href="/settings" className="text-sm text-[#0D0D0D]">Settings</Link>
             <button type="button" onClick={() => void signOut()} className="text-sm text-[#0D0D0D]">Sign out</button>

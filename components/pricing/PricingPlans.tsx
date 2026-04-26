@@ -1,6 +1,5 @@
 "use client";
 
-import { SignupModal } from "@/components/SignupModal";
 import { savePendingPlan } from "@/lib/billing/pending-plan";
 import { useState } from "react";
 
@@ -14,17 +13,16 @@ type Props = {
 export function PricingPlans({ starterPriceId, proPriceId, loggedIn = true }: Props) {
   const [loading, setLoading] = useState<"starter" | "pro" | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [signupPlan, setSignupPlan] = useState<"starter" | "pro" | null>(null);
 
   async function startCheckout(plan: "starter" | "pro") {
     const priceId = plan === "starter" ? starterPriceId : proPriceId;
-    savePendingPlan({ plan, priceId });
-    if (!loggedIn) {
-      setSignupPlan(plan);
-      return;
-    }
     if (!priceId) {
       setError("Pricing is not configured. Set STRIPE_STARTER_PRICE_ID and STRIPE_PRO_PRICE_ID.");
+      return;
+    }
+    if (!loggedIn) {
+      savePendingPlan({ plan, priceId });
+      window.location.href = `/api/stripe/create-checkout?priceId=${encodeURIComponent(priceId)}&plan=${plan}`;
       return;
     }
     setLoading(plan);
@@ -101,15 +99,6 @@ export function PricingPlans({ starterPriceId, proPriceId, loggedIn = true }: Pr
 
         {error && <p className="col-span-full text-sm text-red-600">{error}</p>}
       </div>
-      {signupPlan && (
-        <SignupModal
-          open
-          onClose={() => setSignupPlan(null)}
-          plan={signupPlan}
-          priceId={signupPlan === "starter" ? starterPriceId : proPriceId}
-          priceLabel={signupPlan === "starter" ? "$29/month" : "$49/month"}
-        />
-      )}
     </>
   );
 }

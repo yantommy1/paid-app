@@ -1,10 +1,10 @@
 "use client";
 
 import { LandingEmailForm } from "@/components/LandingEmailForm";
-import { SignupModal } from "@/components/SignupModal";
 import { savePendingPlan } from "@/lib/billing/pending-plan";
 import { GmailSidebarMockup } from "@/components/landing/GmailSidebarMockup";
 import { SectionReveal } from "@/components/landing/SectionReveal";
+import { SmartLogoLink } from "@/components/SmartLogoLink";
 import { createClient } from "@/lib/supabase/browser";
 import type { User } from "@supabase/supabase-js";
 import Link from "next/link";
@@ -27,7 +27,6 @@ export function HomeLanding({
   const router = useRouter();
   const [inlineIntent, setInlineIntent] = useState<"signup" | "signin">("signup");
   const [signInModalOpen, setSignInModalOpen] = useState(false);
-  const [signupOpen, setSignupOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
@@ -40,20 +39,23 @@ export function HomeLanding({
   }, []);
 
   function onStartFreeTrial() {
+    if (!starterPriceId) return;
+    savePendingPlan({ plan: "starter", priceId: starterPriceId });
     if (user) {
-      savePendingPlan({ plan: "starter", priceId: starterPriceId });
       router.push("/pricing");
       return;
     }
-    savePendingPlan({ plan: "starter", priceId: starterPriceId });
-    setSignupOpen(true);
+    window.location.href = `/api/stripe/create-checkout?priceId=${encodeURIComponent(starterPriceId)}&plan=starter`;
   }
 
   return (
     <div className="min-h-screen bg-white text-[#0D0D0D]">
       <nav className="sticky top-0 z-30 border-b border-[#E5E5E5] bg-white/95 backdrop-blur-sm">
         <div className="mx-auto flex w-full max-w-[1200px] items-center justify-between px-6 py-5">
-          <span className="font-display text-4xl font-semibold text-[#0D0D0D]">Paid</span>
+          <SmartLogoLink
+            loggedIn={!!user}
+            className="font-display text-4xl font-semibold text-[#0D0D0D]"
+          />
           {user ? (
             <div className="flex items-center gap-3">
               <span className="flex h-8 w-8 items-center justify-center rounded-full border border-[#E5E5E5] text-sm text-[#0D0D0D]">
@@ -389,13 +391,6 @@ export function HomeLanding({
           </div>
         </div>
       )}
-      <SignupModal
-        open={signupOpen}
-        onClose={() => setSignupOpen(false)}
-        plan="starter"
-        priceId={starterPriceId}
-        priceLabel="$29/month"
-      />
     </div>
   );
 }

@@ -11,12 +11,14 @@ type Plan = "starter" | "pro";
 type Props = {
   open: boolean;
   onClose: () => void;
-  plan: Plan;
+  planName: "Starter" | "Pro";
   priceId: string;
-  priceLabel: string;
 };
 
-export function SignupModal({ open, onClose, plan, priceId, priceLabel }: Props) {
+export function SignupModal({ open, onClose, planName, priceId }: Props) {
+  const plan: Plan = planName === "Starter" ? "starter" : "pro";
+  const priceLabel = planName === "Starter" ? "$29/month" : "$49/month";
+
   const router = useRouter();
   const [mode, setMode] = useState<"signup" | "signin">("signup");
   const [email, setEmail] = useState("");
@@ -86,7 +88,7 @@ export function SignupModal({ open, onClose, plan, priceId, priceLabel }: Props)
         </button>
         <p className="font-display text-3xl text-[#0D0D0D]">Paid</p>
         <p className="mt-4 text-sm text-[#6B6B6B]">
-          Starting your <span className="font-medium capitalize text-[#0D0D0D]">{plan}</span> plan
+          Starting your <span className="font-medium text-[#0D0D0D]">{planName}</span> plan
           {" - "}
           {priceLabel}
         </p>

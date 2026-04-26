@@ -1,6 +1,7 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/browser";
+import { SmartLogoLink } from "@/components/SmartLogoLink";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
@@ -37,9 +38,7 @@ export function Nav({ userEmail = null }: NavProps) {
   return (
     <nav className="border-b border-[#E5E5E5] bg-white">
       <div className="mx-auto flex w-full max-w-[1200px] items-center justify-between px-6 py-5">
-        <Link href="/" className="font-display text-3xl text-[#0D0D0D]">
-          Paid
-        </Link>
+        <SmartLogoLink loggedIn={loggedIn} className="font-display text-3xl text-[#0D0D0D]" />
 
         {!loggedIn ? (
           <div className="flex items-center gap-3 text-sm">

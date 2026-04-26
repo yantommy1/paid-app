@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/browser";
 import { clearPendingPlan, getPendingPlan } from "@/lib/billing/pending-plan";
+import { SmartLogoLink } from "@/components/SmartLogoLink";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -113,7 +114,7 @@ export function OnboardingClient({ initialStep, email, quickbooksConnected, gmai
     <div className="space-y-10">
       <header className="flex flex-col gap-6 border-b border-[#E5E5E5] pb-10 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <Link href="/" className="font-display text-3xl text-[#0D0D0D]">Paid</Link>
+          <SmartLogoLink loggedIn className="font-display text-3xl text-[#0D0D0D]" />
           <p className="mt-2 text-xs uppercase tracking-[0.18em] text-[#6B6B6B]">Setup</p>
           <p className="mt-4 text-sm text-[#6B6B6B]">Signed in as {email}</p>
         </div>

@@ -35,6 +35,13 @@ export async function middleware(request: NextRequest) {
   const state = await getUserRoutingState(supabase, user.id);
   const destination = postLoginPathForState(state);
   const subStatus = state.subscriptionStatus;
+  console.info("[routing:middleware]", {
+    userId: user.id,
+    onboardingCompleted: state.onboardingCompleted,
+    subscriptionStatus: subStatus,
+    destination,
+    pathname,
+  });
 
   if (pathname === "/") {
     return NextResponse.redirect(new URL(destination, request.url));
