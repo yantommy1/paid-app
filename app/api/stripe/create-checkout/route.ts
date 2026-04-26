@@ -1,31 +1,17 @@
 import { serverError } from "@/lib/api/errors";
 import { getStripe } from "@/lib/stripe/connect";
-import { createRouteHandlerClient } from "@/lib/supabase/route-client";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 const BodySchema = z.object({
   priceId: z.string().min(1),
-  plan: z.enum(["starter", "pro"]),
-  email: z.string().email().optional(),
+  plan: z.enum(["starter", "pro"]).optional(),
+  email: z.string().email(),
 });
 
-const APP_BASE = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || "https://paid-app.com";
-const SUCCESS_URL_LOGGED_IN = `${APP_BASE}/success`;
-const SUCCESS_URL_GUEST = `${APP_BASE}/onboarding`;
-const CANCEL_URL = `${APP_BASE}/pricing`;
-
-function parsePayload(request: NextRequest, body: unknown) {
-  const parsed = BodySchema.safeParse(body);
-  if (parsed.success) return parsed.data;
-  const fromQuery = BodySchema.safeParse({
-    priceId: request.nextUrl.searchParams.get("priceId") ?? "",
-    plan: request.nextUrl.searchParams.get("plan"),
-    email: request.nextUrl.searchParams.get("email") ?? undefined,
-  });
-  if (fromQuery.success) return fromQuery.data;
-  return null;
-}
+const APP_BASE = "https://paid-app.com";
+const SUCCESS_URL = `${APP_BASE}/success?session_id={CHECKOUT_SESSION_ID}`;
+const CANCEL_URL = `${APP_BASE}`;
 
 export async function POST(request: NextRequest) {
   if (!process.env.STRIPE_SECRET_KEY) {
@@ -37,75 +23,54 @@ export async function POST(request: NextRequest) {
     return serverError("Pricing is not configured.", 500);
   }
 
-  let json: unknown;
+  let json: unknown = null;
   try {
     json = await request.json();
   } catch {
     return serverError("Invalid JSON", 400);
   }
 
-  const payload = parsePayload(request, json);
-  if (!payload) {
+  const payload = BodySchema.safeParse(json);
+  if (!payload.success) {
     return serverError("Invalid payload", 400);
   }
 
-  const { priceId, plan, email } = payload;
+  const { priceId, plan, email } = payload.data;
   if (priceId !== starter && priceId !== pro) {
     return serverError("Invalid priceId", 400);
   }
 
-  const supabase = await createRouteHandlerClient(request);
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
   const stripe = getStripe();
-  let customerId: string | null = null;
-  const checkoutEmail = (user?.email ?? email ?? "").trim() || undefined;
 
   try {
-    if (user) {
-      const { data: userRow } = await supabase
-        .from("users")
-        .select("stripe_customer_id")
-        .eq("id", user.id)
-        .maybeSingle();
-      customerId = (userRow?.stripe_customer_id as string | null) ?? null;
-      if (!customerId) {
-        const customer = await stripe.customers.create({
-          email: checkoutEmail,
-          metadata: { supabase_user_id: user.id },
-        });
-        customerId = customer.id;
-        await supabase
-          .from("users")
-          .update({ stripe_customer_id: customerId })
-          .eq("id", user.id);
-      }
+    const normalizedEmail = email.trim().toLowerCase();
+    const customerSearch = await stripe.customers.list({
+      email: normalizedEmail,
+      limit: 1,
+    });
+    let customerId = customerSearch.data[0]?.id ?? null;
+    if (!customerId) {
+      const customer = await stripe.customers.create({ email: normalizedEmail });
+      customerId = customer.id;
     }
 
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
-      ...(customerId ? { customer: customerId } : {}),
-      ...(!customerId && checkoutEmail ? { customer_email: checkoutEmail } : {}),
+      customer: customerId,
+      customer_email: normalizedEmail,
       line_items: [{ price: priceId, quantity: 1 }],
       payment_method_collection: "always",
       subscription_data: {
         trial_period_days: 30,
-        metadata: {
-          ...(user?.id ? { supabase_user_id: user.id } : {}),
-          plan,
-        },
+        metadata: { plan: plan ?? "starter" },
       },
-      success_url: user ? SUCCESS_URL_LOGGED_IN : SUCCESS_URL_GUEST,
+      success_url: SUCCESS_URL,
       cancel_url: CANCEL_URL,
       metadata: {
-        ...(user?.id ? { supabase_user_id: user.id } : {}),
-        ...(checkoutEmail ? { checkout_email: checkoutEmail } : {}),
-        plan,
+        checkout_email: normalizedEmail,
+        plan: plan ?? "starter",
         checkout_purpose: "saas_subscription",
       },
-      ...(user?.id ? { client_reference_id: user.id } : {}),
     });
 
     if (!session.url) {
@@ -120,24 +85,4 @@ export async function POST(request: NextRequest) {
     }
     return serverError("Unable to start checkout right now.", 500);
   }
-}
-
-export async function GET(request: NextRequest) {
-  const body = {
-    priceId: request.nextUrl.searchParams.get("priceId") ?? "",
-    plan: request.nextUrl.searchParams.get("plan"),
-    email: request.nextUrl.searchParams.get("email") ?? undefined,
-  };
-  const fakeRequest = new NextRequest(request.url, {
-    method: "POST",
-    headers: request.headers,
-    body: JSON.stringify(body),
-  });
-  const res = await POST(fakeRequest);
-  const json = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
-  if (res.ok && json.url) {
-    return NextResponse.redirect(json.url);
-  }
-  const backToPricing = `${CANCEL_URL}?message=checkout`;
-  return NextResponse.redirect(backToPricing);
 }

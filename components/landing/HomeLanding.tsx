@@ -1,14 +1,13 @@
 "use client";
 
 import { LandingEmailForm } from "@/components/LandingEmailForm";
-import { savePendingPlan } from "@/lib/billing/pending-plan";
+import { EmailCaptureModal } from "@/components/EmailCaptureModal";
 import { GmailSidebarMockup } from "@/components/landing/GmailSidebarMockup";
 import { SectionReveal } from "@/components/landing/SectionReveal";
 import { SmartLogoLink } from "@/components/SmartLogoLink";
 import { createClient } from "@/lib/supabase/browser";
 import type { User } from "@supabase/supabase-js";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 function navAvatarLetter(user: User): string {
@@ -21,12 +20,14 @@ function navAvatarLetter(user: User): string {
 
 export function HomeLanding({
   starterPriceId,
+  proPriceId,
 }: {
   starterPriceId: string;
+  proPriceId: string;
 }) {
-  const router = useRouter();
-  const [inlineIntent, setInlineIntent] = useState<"signup" | "signin">("signup");
   const [signInModalOpen, setSignInModalOpen] = useState(false);
+  const [navShadow, setNavShadow] = useState(false);
+  const [openPlan, setOpenPlan] = useState<"starter" | "pro" | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [summary, setSummary] = useState<{
     totalOutstanding: number;
@@ -74,19 +75,24 @@ export function HomeLanding({
     };
   }, [user]);
 
-  function onStartFreeTrial() {
-    if (!starterPriceId) return;
-    savePendingPlan({ plan: "starter", priceId: starterPriceId });
-    if (user) {
-      router.push("/pricing");
-      return;
-    }
-    window.location.href = `/api/stripe/create-checkout?priceId=${encodeURIComponent(starterPriceId)}&plan=starter`;
+  useEffect(() => {
+    const onScroll = () => setNavShadow(window.scrollY > 8);
+    onScroll();
+    window.addEventListener("scroll", onScroll);
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  function onStartFreeTrial(plan: "starter" | "pro" = "starter") {
+    setOpenPlan(plan);
   }
 
   return (
     <div className="min-h-screen bg-white text-[#0D0D0D]">
-      <nav className="sticky top-0 z-30 border-b border-[#E5E5E5] bg-white/95 backdrop-blur-sm">
+      <nav
+        className={`sticky top-0 z-30 border-b border-[#E5E5E5] bg-white/95 backdrop-blur-sm ${
+          navShadow ? "shadow-sm" : ""
+        }`}
+      >
         <div className="mx-auto flex w-full max-w-[1200px] items-center justify-between px-6 py-5">
           <SmartLogoLink
             loggedIn={!!user}
@@ -103,7 +109,9 @@ export function HomeLanding({
             </div>
           ) : (
             <div className="flex items-center gap-6 text-sm text-[#0D0D0D]">
-              <button type="button" onClick={onStartFreeTrial}>Get started</button>
+              <button type="button" onClick={() => onStartFreeTrial("starter")}>
+                Start free trial
+              </button>
               <button type="button" onClick={() => setSignInModalOpen(true)}>Sign in</button>
             </div>
           )}
@@ -111,7 +119,7 @@ export function HomeLanding({
       </nav>
 
       <main>
-        <section className="relative overflow-hidden py-24">
+        <section className="relative overflow-hidden bg-gradient-to-b from-white to-[#F0F7F4] py-24">
           <div
             aria-hidden
             className="pointer-events-none absolute inset-y-0 right-0 hidden w-1/2 opacity-40 lg:block"
@@ -129,10 +137,11 @@ export function HomeLanding({
             <SectionReveal>
               <div>
                 <p className="mb-6 text-sm uppercase tracking-[0.22em] text-[#1B4332]">AI Receivables</p>
-                <h1 className="font-display text-[3.2rem] leading-[0.92] tracking-tight text-[#0D0D0D] sm:text-[4.4rem] lg:text-7xl">
+                <h1 className="font-display text-[3.2rem] leading-[0.92] tracking-tight text-[#0D0D0D] sm:text-[4.4rem] lg:text-8xl">
                   You did the work.
                   <br />
-                  We&apos;ll get you paid.
+                  We&apos;ll get you{" "}
+                  <span className="relative inline-block border-b-2 border-[#1B4332]">paid</span>.
                 </h1>
                 <p className="mt-6 max-w-xl text-[18px] leading-relaxed text-[#6B6B6B]">
                   Paid syncs your invoices and sends AI-drafted payment reminders from your real email — automatically, in your voice.
@@ -140,10 +149,10 @@ export function HomeLanding({
                 <div className="mt-10 flex flex-wrap items-center gap-6">
                   <button
                     type="button"
-                    onClick={onStartFreeTrial}
+                    onClick={() => onStartFreeTrial("starter")}
                     className="bg-[#1B4332] px-6 py-3 text-sm font-medium text-white"
                   >
-                    Get started
+                    Start free trial
                   </button>
                   <a href="#how-it-works" className="text-sm text-[#0D0D0D]">
                     See how it works →
@@ -152,7 +161,13 @@ export function HomeLanding({
               </div>
             </SectionReveal>
             <SectionReveal className="lg:justify-self-end">
-              <GmailSidebarMockup />
+              <div className="relative">
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute left-1/2 top-1/2 h-56 w-56 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#1B4332]/10 blur-3xl"
+                />
+                <GmailSidebarMockup />
+              </div>
             </SectionReveal>
           </div>
         </section>
@@ -169,7 +184,7 @@ export function HomeLanding({
           </div>
         </section>
 
-        <section className="py-10">
+        <section className="bg-[#F7F7F5] py-10">
           <div className="mx-auto w-full max-w-[1200px] px-6">
             <p className="text-center text-sm uppercase tracking-[0.22em] text-[#6B6B6B]">
               Trusted by professional services firms
@@ -187,7 +202,7 @@ export function HomeLanding({
           </div>
         </section>
 
-        <section className="border-t border-[#E5E5E5] py-24">
+        <section className="border-t border-[#E5E5E5] bg-white py-24">
           <div className="mx-auto w-full max-w-[1200px] px-6">
             <SectionReveal>
               <p className="text-sm uppercase tracking-[0.22em] text-[#1B4332]">The AR Reality</p>
@@ -200,9 +215,11 @@ export function HomeLanding({
                   { stat: "47", body: "days average payment delay in professional services" },
                   { stat: "23%", body: "of invoices are never collected after 90 days" },
                 ].map((card) => (
-                  <article key={card.stat} className="border border-[#E5E5E5] bg-[#F0F7F4] px-6 py-7">
-                    <div className="mb-5 h-8 border-l-4 border-[#1B4332]" aria-hidden />
-                    <p className="font-display text-5xl leading-none text-[#0D0D0D]">{card.stat}</p>
+                  <article
+                    key={card.stat}
+                    className="border border-[#E5E5E5] border-l-[3px] border-l-[#1B4332] bg-[#F0F7F4] px-6 py-7"
+                  >
+                    <p className="font-display text-5xl leading-none text-[#1B4332]">{card.stat}</p>
                     <p className="mt-4 text-sm leading-relaxed text-[#6B6B6B]">{card.body}</p>
                   </article>
                 ))}
@@ -211,23 +228,23 @@ export function HomeLanding({
           </div>
         </section>
 
-        <section id="how-it-works" className="border-y border-[#E5E5E5] bg-white py-24 text-[#0D0D0D]">
+        <section id="how-it-works" className="bg-[#1B4332] py-24 text-white">
           <div className="mx-auto w-full max-w-[1200px] px-6">
             <SectionReveal>
-              <p className="text-sm uppercase tracking-[0.22em] text-[#1B4332]">How it works</p>
-              <h2 className="mt-3 font-display text-5xl text-[#0D0D0D]">Three steps. One outcome.</h2>
+              <p className="text-sm uppercase tracking-[0.22em] text-[#C8D9D1]">How it works</p>
+              <h2 className="mt-3 font-display text-5xl text-white">Three steps. One outcome.</h2>
               <div className="mt-14 grid gap-8 md:grid-cols-3">
                 {[
                   ["1", "Connect QuickBooks", "Sync open invoices and customer details."],
                   ["2", "Generate reminders", "Create polished follow-up drafts for each client."],
                   ["3", "Send from Gmail", "Deliver reminders from the inbox your clients trust."],
                 ].map(([n, t, b]) => (
-                  <article key={t} className="space-y-3 rounded-lg border border-[#E5E5E5] bg-[#F7F7F5] p-5">
-                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#1B4332] text-xs font-medium text-white">
+                  <article key={t} className="space-y-3 rounded-lg border border-white/15 bg-white/5 p-5">
+                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white text-xs font-medium text-[#1B4332]">
                       {n}
                     </span>
-                    <h3 className="text-lg font-medium text-[#0D0D0D]">{t}</h3>
-                    <p className="text-sm leading-relaxed text-[#6B6B6B]">{b}</p>
+                    <h3 className="text-lg font-medium text-white">{t}</h3>
+                    <p className="text-sm leading-relaxed text-[#D4E2DC]">{b}</p>
                   </article>
                 ))}
               </div>
@@ -238,11 +255,11 @@ export function HomeLanding({
                   ["Send", "From Gmail"],
                 ].map(([title, sub], idx) => (
                   <div key={title} className="flex items-center gap-4">
-                    <div className="w-[160px] rounded border border-[#E5E5E5] bg-[#F7F7F5] px-4 py-3 text-center">
-                      <p className="text-sm font-semibold text-[#0D0D0D]">{title}</p>
-                      <p className="mt-1 text-xs text-[#6B6B6B]">{sub}</p>
+                    <div className="w-[160px] rounded border border-white/20 bg-white/10 px-4 py-3 text-center">
+                      <p className="text-sm font-semibold text-white">{title}</p>
+                      <p className="mt-1 text-xs text-[#D4E2DC]">{sub}</p>
                     </div>
-                    {idx < 2 && <span className="text-xl text-[#6B6B6B]">→</span>}
+                    {idx < 2 && <span className="text-xl text-white/80">→</span>}
                   </div>
                 ))}
               </div>
@@ -250,7 +267,7 @@ export function HomeLanding({
           </div>
         </section>
 
-        <section className="py-24">
+        <section className="bg-[#F7F7F5] py-24">
           <div className="mx-auto grid w-full max-w-[1200px] gap-12 px-6 lg:grid-cols-2 lg:gap-20">
             <SectionReveal>
               <h2 className="font-display text-[42px] leading-tight text-[#0D0D0D]">
@@ -278,7 +295,7 @@ export function HomeLanding({
         </section>
 
         {!user ? (
-        <section className="bg-[#F7F7F5] py-24">
+        <section className="bg-white py-24">
           <div className="mx-auto w-full max-w-[1200px] px-6">
             <SectionReveal>
               <p className="text-sm uppercase tracking-[0.22em] text-[#1B4332]">Testimonials</p>
@@ -304,8 +321,8 @@ export function HomeLanding({
                     title: "Founder, Nair Consulting Group",
                   },
                 ].map((t) => (
-                  <article key={t.name} className="border border-[#E5E5E5] bg-white p-6">
-                    <p className="font-display text-5xl leading-none text-[#1B4332]">“</p>
+                  <article key={t.name} className="border border-[#E5E5E5] bg-white p-6 shadow-sm">
+                    <p className="font-display text-[80px] leading-none text-[#1B4332]">“</p>
                     <p className="mt-4 font-display text-xl leading-relaxed text-[#0D0D0D]">{t.quote}</p>
                     <p className="mt-6 text-sm font-semibold text-[#0D0D0D]">{t.name}</p>
                     <p className="mt-1 text-sm text-[#6B6B6B]">{t.title}</p>
@@ -394,7 +411,7 @@ export function HomeLanding({
                   </div>
                   <button
                     type="button"
-                    onClick={onStartFreeTrial}
+                    onClick={() => onStartFreeTrial("starter")}
                     className="mt-10 flex w-full items-center justify-center border border-[#1B4332] py-3 text-sm font-medium text-[#1B4332]"
                   >
                     Start free trial
@@ -417,55 +434,51 @@ export function HomeLanding({
                   </div>
                   <button
                     type="button"
-                    onClick={onStartFreeTrial}
+                    onClick={() => onStartFreeTrial("pro")}
                     className="mt-10 flex w-full items-center justify-center bg-[#1B4332] py-3 text-sm font-medium text-white"
                   >
-                    Get started
+                    Start free trial
                   </button>
                 </article>
               </div>
 
               <div className="mx-auto mt-20 max-w-xl border border-[#E5E5E5] bg-white p-8">
-                <div className="flex border-b border-[#E5E5E5]">
-                  <button
-                    type="button"
-                    onClick={() => setInlineIntent("signup")}
-                    className={`px-3 py-2 text-sm ${inlineIntent === "signup" ? "border-b-2 border-[#1B4332] text-[#0D0D0D]" : "text-[#6B6B6B]"}`}
-                  >
-                    New to Paid
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setInlineIntent("signin")}
-                    className={`px-3 py-2 text-sm ${inlineIntent === "signin" ? "border-b-2 border-[#1B4332] text-[#0D0D0D]" : "text-[#6B6B6B]"}`}
-                  >
-                    Sign in
-                  </button>
-                </div>
-                <h3 className="mt-6 font-display text-3xl text-[#0D0D0D]">
-                  {inlineIntent === "signup" ? "Start collecting what you&apos;ve earned." : "Welcome back"}
-                </h3>
+                <h3 className="font-display text-3xl text-[#0D0D0D]">Already have an account?</h3>
                 <p className="mt-2 text-sm leading-relaxed text-[#6B6B6B]">
-                  {inlineIntent === "signup"
-                    ? "Enter your work email to get started."
-                    : "Enter your email and we will send a secure sign-in link."}
+                  Sign in with your email to manage billing, connect integrations, and view reminders.
                 </p>
                 <div className="mt-8">
-                  <LandingEmailForm key={`inline-${inlineIntent}`} variant="light" intent={inlineIntent} />
+                  <LandingEmailForm variant="light" intent="signin" />
                 </div>
               </div>
             </SectionReveal>
           </div>
         </section>
 
-        <footer className="border-t border-[#E5E5E5] py-12">
+        <section className="bg-[#1B4332] py-20 text-white">
+          <div className="mx-auto max-w-[1200px] px-6 text-center">
+            <h2 className="font-display text-5xl">Ready to stop chasing invoices?</h2>
+            <p className="mx-auto mt-4 max-w-2xl text-base text-[#D4E2DC]">
+              Start your free trial in under a minute and put automated follow-up on autopilot.
+            </p>
+            <button
+              type="button"
+              onClick={() => onStartFreeTrial("starter")}
+              className="mt-8 bg-white px-6 py-3 text-sm font-semibold text-[#1B4332]"
+            >
+              Start free trial
+            </button>
+          </div>
+        </section>
+
+        <footer className="bg-[#0D0D0D] py-12 text-white">
           <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-4 px-6 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-6">
-              <span className="font-display text-2xl text-[#0D0D0D]">Paid</span>
-              <Link href="/privacy" className="text-sm text-[#6B6B6B] hover:text-[#0D0D0D]">Privacy</Link>
-              <Link href="/terms" className="text-sm text-[#6B6B6B] hover:text-[#0D0D0D]">Terms</Link>
+              <span className="font-display text-2xl text-white">Paid</span>
+              <Link href="/privacy" className="text-sm text-[#7FB39E] hover:text-[#A8D0C1]">Privacy</Link>
+              <Link href="/terms" className="text-sm text-[#7FB39E] hover:text-[#A8D0C1]">Terms</Link>
             </div>
-            <p className="text-sm text-[#6B6B6B]">You did the work. We&apos;ll get you paid.</p>
+            <p className="text-sm text-[#D7D7D7]">You did the work. We&apos;ll get you paid.</p>
           </div>
         </footer>
       </main>
@@ -486,6 +499,16 @@ export function HomeLanding({
             <LandingEmailForm intent="signin" variant="light" />
           </div>
         </div>
+      )}
+      {openPlan && (
+        <EmailCaptureModal
+          isOpen={openPlan !== null}
+          onClose={() => setOpenPlan(null)}
+          plan={openPlan}
+          priceId={openPlan === "starter" ? starterPriceId : proPriceId}
+          initialEmail={user?.email ?? null}
+          skipCapture={Boolean(user?.email)}
+        />
       )}
     </div>
   );

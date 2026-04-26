@@ -1,12 +1,10 @@
 import Link from "next/link";
-import { Nav } from "@/components/Nav";
-import { createClient } from "@/lib/supabase/server";
+import { getStripe } from "@/lib/stripe/connect";
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
 
 export const metadata: Metadata = {
   title: "Trial Started — Paid",
-  description: "Your Paid free trial is active. Open Gmail or continue to your dashboard.",
+  description: "Your Paid trial is active. Check your inbox for a sign-in link to finish setup.",
 };
 
 function CheckIcon() {
@@ -30,24 +28,37 @@ function CheckIcon() {
   );
 }
 
-export default async function SubscriptionSuccessPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    redirect("/");
+export default async function SubscriptionSuccessPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ session_id?: string }>;
+}) {
+  const params = await searchParams;
+  const sessionId = (params.session_id ?? "").trim();
+
+  let customerEmail = "";
+  let trialEndDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  if (sessionId) {
+    try {
+      const stripe = getStripe();
+      const session = await stripe.checkout.sessions.retrieve(sessionId, {
+        expand: ["subscription"],
+      });
+      customerEmail =
+        session.customer_details?.email ??
+        session.customer_email ??
+        session.metadata?.checkout_email ??
+        "";
+      const sub = session.subscription;
+      if (sub && typeof sub !== "string" && sub.trial_end) {
+        trialEndDate = new Date(sub.trial_end * 1000);
+      }
+    } catch {
+      // keep default view when session cannot be fetched
+    }
   }
 
-  const { data: profile } = await supabase
-    .from("users")
-    .select("trial_ends_at")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  const trialEndsDisplay = new Date(
-    (profile?.trial_ends_at as string | null) ?? Date.now() + 30 * 24 * 60 * 60 * 1000
-  ).toLocaleDateString("en-US", {
+  const trialEndsDisplay = trialEndDate.toLocaleDateString("en-US", {
     month: "long",
     day: "numeric",
     year: "numeric",
@@ -55,53 +66,30 @@ export default async function SubscriptionSuccessPage() {
 
   return (
     <main className="min-h-screen bg-white text-[#0D0D0D]">
-      <Nav userEmail={user.email ?? null} />
-
       <div className="mx-auto max-w-xl px-6 py-16 md:py-20">
         <div className="flex flex-col items-center text-center">
           <CheckIcon />
           <h1 className="mt-8 font-display text-4xl text-[#0D0D0D] md:text-5xl">
-            You&apos;re all set.
+            Your trial has started.
           </h1>
           <p className="mt-5 text-lg leading-relaxed text-[#6B6B6B]">
-            Your 30-day free trial has started. You won&apos;t be billed until {trialEndsDisplay}.
-            We&apos;ll send a reminder before your trial ends.
+            We sent a sign-in link to{" "}
+            <span className="font-medium text-[#0D0D0D]">{customerEmail || "your email"}</span>.
+            Click it to set up your account and start collecting overdue invoices.
           </p>
-
-          <ul className="mt-10 w-full max-w-md space-y-3 text-left text-sm text-[#0D0D0D]">
-            <li className="flex gap-3 border-b border-[#E5E5E5] pb-3">
-              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#1B4332]" aria-hidden />
-              QuickBooks connected and syncing
-            </li>
-            <li className="flex gap-3 border-b border-[#E5E5E5] pb-3">
-              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#1B4332]" aria-hidden />
-              Gmail connected and ready to send
-            </li>
-            <li className="flex gap-3 pb-1">
-              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#1B4332]" aria-hidden />
-              AI reminders active
-            </li>
-          </ul>
+          <p className="mt-4 text-sm text-[#6B6B6B]">Trial ends on {trialEndsDisplay}</p>
 
           <div className="mt-10 flex w-full max-w-md flex-col gap-3 sm:flex-row sm:justify-center">
-            <a
-              href="https://mail.google.com"
-              target="_blank"
-              rel="noopener noreferrer"
+            <Link
+              href="/"
               className="inline-flex flex-1 items-center justify-center border border-[#E5E5E5] bg-white px-5 py-3 text-sm font-medium text-[#0D0D0D] hover:bg-[#F7F7F5]"
             >
-              Open Gmail
-            </a>
-            <Link
-              href="/dashboard"
-              className="inline-flex flex-1 items-center justify-center bg-[#1B4332] px-5 py-3 text-sm font-medium text-white hover:opacity-95"
-            >
-              Go to dashboard
+              Back to home
             </Link>
           </div>
 
           <p className="mt-12 max-w-md text-center text-xs leading-relaxed text-[#6B6B6B]">
-            A confirmation has been sent to your email. Manage your subscription anytime in Settings.
+            Didn&apos;t get the email? Check spam, then start a new trial flow with the same address.
           </p>
         </div>
       </div>

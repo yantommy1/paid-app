@@ -41,8 +41,7 @@ export default async function PricingPage({
         <PricingPlans
           starterPriceId={process.env.STRIPE_STARTER_PRICE_ID?.trim() ?? ""}
           proPriceId={process.env.STRIPE_PRO_PRICE_ID?.trim() ?? ""}
-          loggedIn={!!user}
-          initialEmail=""
+          loggedInEmail={user?.email ?? null}
         />
       </div>
     </main>

@@ -11,6 +11,67 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 import type Stripe from "stripe";
 
+async function ensureUserForCheckoutEmail(email: string) {
+  const admin = createAdminClient();
+  const normalizedEmail = email.trim().toLowerCase();
+
+  const { data: existingUserRow } = await admin
+    .from("users")
+    .select("id")
+    .eq("email", normalizedEmail)
+    .maybeSingle();
+  if (existingUserRow?.id) {
+    return String(existingUserRow.id);
+  }
+
+  const created = await admin.auth.admin.createUser({
+    email: normalizedEmail,
+    email_confirm: true,
+  });
+  if (created.error || !created.data.user) {
+    throw new Error("Could not create account.");
+  }
+
+  await admin.from("users").upsert(
+    {
+      id: created.data.user.id,
+      email: normalizedEmail,
+      onboarding_completed: false,
+    },
+    { onConflict: "id" }
+  );
+
+  return created.data.user.id;
+}
+
+async function sendMagicLinkToUser(email: string) {
+  const normalizedEmail = email.trim().toLowerCase();
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://paid-app.com";
+  const redirectTo = `${appUrl.replace(/\/$/, "")}/auth/callback`;
+  const admin = createAdminClient();
+
+  await admin.auth.admin.generateLink({
+    type: "magiclink",
+    email: normalizedEmail,
+    options: { redirectTo },
+  });
+
+  const anonUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!anonUrl || !anonKey) return;
+
+  const publicClient = createSupabaseClient(anonUrl, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  await publicClient.auth.signInWithOtp({
+    email: normalizedEmail,
+    options: {
+      shouldCreateUser: false,
+      emailRedirectTo: redirectTo,
+    },
+  });
+}
+
 export async function POST(request: NextRequest) {
   const raw = await request.text();
   const sig = request.headers.get("stripe-signature");
@@ -34,62 +95,20 @@ export async function POST(request: NextRequest) {
   const admin = createAdminClient();
   const stripe = getStripe();
 
-  async function resolveUserIdForCheckout(session: Stripe.Checkout.Session): Promise<string | null> {
-    const metadataUserId = session.metadata?.supabase_user_id;
-    if (metadataUserId) return metadataUserId;
-
-    const email = (
-      session.customer_details?.email ??
-      session.customer_email ??
-      session.metadata?.checkout_email ??
-      ""
-    ).trim().toLowerCase();
-    if (!email) return null;
-
-    const { data: byEmailRow } = await admin
-      .from("users")
-      .select("id")
-      .eq("email", email)
-      .maybeSingle();
-    if (byEmailRow?.id) return String(byEmailRow.id);
-
-    const createRes = await admin.auth.admin.createUser({
-      email,
-      email_confirm: true,
-    });
-    if (createRes.error || !createRes.data.user) return null;
-
-    const userId = createRes.data.user.id;
-    await admin.from("users").upsert(
-      {
-        id: userId,
-        email,
-        onboarding_completed: false,
-      },
-      { onConflict: "id" }
-    );
-
-    const anonUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (anonUrl && anonKey) {
-      const publicClient = createSupabaseClient(anonUrl, anonKey, {
-        auth: { persistSession: false, autoRefreshToken: false },
-      });
-      await publicClient.auth.signInWithOtp({
-        email,
-        options: { shouldCreateUser: false, emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL || "https://paid-app.com"}/auth/callback` },
-      });
-    }
-    return userId;
-  }
-
   switch (event.type) {
     case "checkout.session.completed": {
       const session = event.data.object as Stripe.Checkout.Session;
       const purpose = session.metadata?.checkout_purpose;
-      const userId = await resolveUserIdForCheckout(session);
+      const checkoutEmail = (
+        session.customer_details?.email ??
+        session.customer_email ??
+        session.metadata?.checkout_email ??
+        ""
+      )
+        .trim()
+        .toLowerCase();
 
-      if (session.mode === "subscription" && purpose === "saas_subscription" && userId) {
+      if (session.mode === "subscription" && purpose === "saas_subscription" && checkoutEmail) {
         const subRef = session.subscription;
         const subId = typeof subRef === "string" ? subRef : subRef?.id;
         const custRef = session.customer;
@@ -97,6 +116,7 @@ export async function POST(request: NextRequest) {
           typeof custRef === "string" ? custRef : custRef?.id ?? null;
         if (subId && customerId) {
           try {
+            const userId = await ensureUserForCheckoutEmail(checkoutEmail);
             const subscription = await stripe.subscriptions.retrieve(subId, {
               expand: ["items.data.price"],
             });
@@ -113,6 +133,8 @@ export async function POST(request: NextRequest) {
             const { error: trialUpdateErr } = await admin
               .from("users")
               .update({
+                stripe_customer_id: customerId,
+                stripe_subscription_id: subId,
                 subscription_status: "trialing",
                 trial_ends_at: trialEndsAt,
               })
@@ -120,16 +142,8 @@ export async function POST(request: NextRequest) {
             if (trialUpdateErr) {
               throw new Error(trialUpdateErr.message);
             }
-            console.info("[stripe:webhook.checkout.completed]", {
-              userId,
-              customerId,
-              subId,
-              subscriptionStatus: subscription.status,
-              trialEndsAt,
-            });
-          } catch (err) {
-            console.error("[stripe:webhook.checkout.completed]", err);
-          }
+            await sendMagicLinkToUser(checkoutEmail);
+          } catch {}
         }
         break;
       }
@@ -142,9 +156,7 @@ export async function POST(request: NextRequest) {
             userId: invoiceUserId,
             invoiceId,
           });
-        } catch (err) {
-          console.error("[stripe:webhook.invoice]", err);
-        }
+        } catch {}
       }
       break;
     }
@@ -156,18 +168,14 @@ export async function POST(request: NextRequest) {
           : subscription.customer.id;
       try {
         await updateUserSubscriptionByCustomerId(customerId, subscription);
-      } catch (err) {
-        console.error("[stripe:webhook.subscription.updated]", err);
-      }
+      } catch {}
       break;
     }
     case "customer.subscription.deleted": {
       const subscription = event.data.object as Stripe.Subscription;
       try {
         await markSubscriptionCanceled(subscription.id);
-      } catch (err) {
-        console.error("[stripe:webhook.subscription.deleted]", err);
-      }
+      } catch {}
       break;
     }
     case "payment_intent.succeeded": {
@@ -180,9 +188,7 @@ export async function POST(request: NextRequest) {
             userId,
             invoiceId,
           });
-        } catch (err) {
-          console.error("[stripe:webhook.payment_intent]", err);
-        }
+        } catch {}
       }
       break;
     }

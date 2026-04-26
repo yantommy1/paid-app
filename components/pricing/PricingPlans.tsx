@@ -1,18 +1,18 @@
 "use client";
 
-import { savePendingPlan } from "@/lib/billing/pending-plan";
+import { EmailCaptureModal } from "@/components/EmailCaptureModal";
 import { useState } from "react";
 
 type Props = {
   starterPriceId: string;
   proPriceId: string;
-  loggedIn?: boolean;
-  initialEmail?: string;
+  loggedInEmail?: string | null;
 };
 
-export function PricingPlans({ starterPriceId, proPriceId, loggedIn = true }: Props) {
+export function PricingPlans({ starterPriceId, proPriceId, loggedInEmail }: Props) {
   const [loading, setLoading] = useState<"starter" | "pro" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [openPlan, setOpenPlan] = useState<"starter" | "pro" | null>(null);
 
   async function startCheckout(plan: "starter" | "pro") {
     const priceId = plan === "starter" ? starterPriceId : proPriceId;
@@ -20,31 +20,24 @@ export function PricingPlans({ starterPriceId, proPriceId, loggedIn = true }: Pr
       setError("Pricing is not configured. Set STRIPE_STARTER_PRICE_ID and STRIPE_PRO_PRICE_ID.");
       return;
     }
-    if (!loggedIn) {
-      savePendingPlan({ plan, priceId });
-      window.location.href = `/api/stripe/create-checkout?priceId=${encodeURIComponent(priceId)}&plan=${plan}`;
+    if (!loggedInEmail) {
+      setOpenPlan(plan);
       return;
     }
+
     setLoading(plan);
-    setError(null);
-    try {
-      const res = await fetch("/api/stripe/create-checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ priceId, plan }),
-      });
-      const j = (await res.json()) as { url?: string; error?: string };
-      if (!res.ok || !j.url) {
-        setError(typeof j.error === "string" ? j.error : "Could not start checkout.");
-        return;
-      }
-      window.location.href = j.url;
-    } catch {
-      setError("Something went wrong. Try again.");
-    } finally {
+    const res = await fetch("/api/stripe/create-checkout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ priceId, plan, email: loggedInEmail }),
+    });
+    const j = (await res.json()) as { url?: string; error?: string };
+    if (!res.ok || !j.url) {
+      setError(typeof j.error === "string" ? j.error : "Could not start checkout.");
       setLoading(null);
+      return;
     }
+    window.location.href = j.url;
   }
 
   return (
@@ -99,6 +92,14 @@ export function PricingPlans({ starterPriceId, proPriceId, loggedIn = true }: Pr
 
         {error && <p className="col-span-full text-sm text-red-600">{error}</p>}
       </div>
+      {openPlan && (
+        <EmailCaptureModal
+          isOpen={openPlan !== null}
+          onClose={() => setOpenPlan(null)}
+          priceId={openPlan === "starter" ? starterPriceId : proPriceId}
+          plan={openPlan}
+        />
+      )}
     </>
   );
 }

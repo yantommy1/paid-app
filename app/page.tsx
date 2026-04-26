@@ -8,5 +8,10 @@ export const metadata: Metadata = {
 };
 
 export default function HomePage() {
-  return <HomeLanding starterPriceId={process.env.STRIPE_STARTER_PRICE_ID?.trim() ?? ""} />;
+  return (
+    <HomeLanding
+      starterPriceId={process.env.STRIPE_STARTER_PRICE_ID?.trim() ?? ""}
+      proPriceId={process.env.STRIPE_PRO_PRICE_ID?.trim() ?? ""}
+    />
+  );
 }
