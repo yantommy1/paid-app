@@ -14,7 +14,7 @@ type Props = {
   intent?: AuthIntent;
 };
 
-function mapAuthError(raw: string | undefined): string {
+export function mapAuthError(raw: string | undefined): string {
   if (!raw) return "Something went wrong. Please try again.";
   const lower = raw.toLowerCase();
   if (lower.includes("invalid login") || lower.includes("invalid credentials")) {

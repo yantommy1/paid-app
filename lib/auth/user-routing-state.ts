@@ -1,3 +1,5 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+
 export type UserRoutingState = {
   onboardingCompleted: boolean;
   subscriptionStatus: string | null;
@@ -22,15 +24,7 @@ export function postLoginPathForState(state: UserRoutingState): string {
  * Missing user row or missing subscription_status is treated as null subscription.
  */
 export async function getUserRoutingState(
-  supabase: {
-    from: (table: string) => {
-      select: (query: string) => {
-        eq: (col: string, val: string) => {
-          maybeSingle: () => Promise<{ data: any; error: { message?: string } | null }>;
-        };
-      };
-    };
-  },
+  supabase: SupabaseClient<any, any, any>,
   userId: string
 ): Promise<UserRoutingState> {
   const primary = await supabase
