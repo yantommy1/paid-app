@@ -1,4 +1,5 @@
 import { draftReminderEmail } from "@/lib/anthropic/draft";
+import { displayNameFromEmail } from "@/lib/auth/display-name";
 import { sendGmailMessage } from "@/lib/gmail/send";
 import { ensureGmailToken, ensureQuickBooksToken } from "@/lib/oauth/tokens";
 import type { GmailToken, QuickBooksToken } from "@/lib/types";
@@ -46,7 +47,7 @@ export async function processDailyReminders(
     return { sent: 0, queued: 0, skipped: 0 };
   }
 
-  const ownerName = user.email?.split("@")[0] ?? "there";
+  const senderName = displayNameFromEmail(user.email);
 
   for (const inv of invoices) {
     const last = inv.reminder_sent_at
@@ -70,7 +71,8 @@ export async function processDailyReminders(
         line_items: inv.line_items ?? null,
         memo: inv.memo ?? null,
       },
-      ownerName
+      senderName,
+      inv.client_name
     );
 
     if (settings.auto_send_enabled) {

@@ -1,4 +1,5 @@
 import { draftReminderEmail } from "@/lib/anthropic/draft";
+import { getUserDisplayName } from "@/lib/auth/display-name";
 import { notFound, serverError } from "@/lib/api/errors";
 import { requireUserFromRequest } from "@/lib/api/require-user-request";
 import { createRouteHandlerClient } from "@/lib/supabase/route-client";
@@ -7,6 +8,7 @@ import { z } from "zod";
 
 const BodySchema = z.object({
   invoiceId: z.string().uuid(),
+  senderName: z.string().min(1).max(120).optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -37,7 +39,7 @@ export async function POST(request: NextRequest) {
     return notFound("Invoice not found");
   }
 
-  const ownerName = ctx.user.email?.split("@")[0] ?? "there";
+  const senderName = parsed.data.senderName ?? getUserDisplayName(ctx.user);
 
   try {
     const draft = await draftReminderEmail(
@@ -50,7 +52,8 @@ export async function POST(request: NextRequest) {
         line_items: inv.line_items ?? null,
         memo: inv.memo ?? null,
       },
-      ownerName
+      senderName,
+      inv.client_name
     );
     return NextResponse.json({ subject: draft.subject, body: draft.body });
   } catch (e) {

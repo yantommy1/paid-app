@@ -76,6 +76,15 @@ function reminderAlreadySent(invoice: Invoice): boolean {
   return invoice.status === "reminder_sent" || Boolean(invoice.reminder_sent_at);
 }
 
+function openGmailCompose(to: string, subject: string, body: string) {
+  const url =
+    "https://mail.google.com/mail/?view=cm&fs=1" +
+    `&to=${encodeURIComponent(to)}` +
+    `&su=${encodeURIComponent(subject)}` +
+    `&body=${encodeURIComponent(body)}`;
+  window.open(url, "_blank", "width=600,height=700,left=200,top=100");
+}
+
 export function OverdueInvoicesPanel() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -371,14 +380,25 @@ export function OverdueInvoicesPanel() {
                         <pre className="mt-2 whitespace-pre-wrap font-sans text-sm text-[#0D0D0D]">
                           {draft.body}
                         </pre>
-                        <button
-                          type="button"
-                          onClick={() => void sendReminder(inv.id, draft.subject, draft.body)}
-                          disabled={sendingId === inv.id}
-                          className="mt-4 rounded-md bg-[#1B4332] px-4 py-2 text-sm font-semibold text-white hover:bg-[#245941] disabled:opacity-60"
-                        >
-                          {sendingId === inv.id ? "Sending..." : "Send Now"}
-                        </button>
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openGmailCompose(inv.client_email, draft.subject, draft.body)
+                            }
+                            className="rounded-md border border-[#1B4332] bg-white px-4 py-2 text-sm font-semibold text-[#1B4332] hover:bg-[#F7F7F5]"
+                          >
+                            Edit in Gmail
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void sendReminder(inv.id, draft.subject, draft.body)}
+                            disabled={sendingId === inv.id}
+                            className="rounded-md bg-[#1B4332] px-4 py-2 text-sm font-semibold text-white hover:bg-[#245941] disabled:opacity-60"
+                          >
+                            {sendingId === inv.id ? "Sending..." : "Send Now"}
+                          </button>
+                        </div>
                       </div>
                     )}
 

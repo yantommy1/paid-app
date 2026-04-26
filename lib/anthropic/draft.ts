@@ -29,7 +29,8 @@ export async function draftReminderEmail(
     | "line_items"
     | "memo"
   >,
-  ownerName: string
+  senderName: string,
+  clientName: string
 ): Promise<{ subject: string; body: string }> {
   const client = getAnthropicClient();
   const model = getModel();
@@ -50,7 +51,13 @@ export async function draftReminderEmail(
       `Work / line items (from QuickBooks invoice lines — reference this so the email reflects actual services or products, not only the total):\n${invoice.line_items.trim()}`
     : "Line items: (not itemized on this invoice — refer to amount and invoice reference only).";
 
-  const prompt = `You are helping ${ownerName} write a short payment reminder for their small professional services business.
+  const clientFirstName =
+    (clientName || invoice.client_name || "")
+      .trim()
+      .split(/\s+/)[0]
+      ?.replace(/[^a-zA-Z'-]/g, "") || "there";
+
+  const prompt = `You are helping ${senderName} write a short payment reminder for their small professional services business.
 
 Invoice reference: ${invoice.quickbooks_invoice_id}
 Client: ${invoice.client_name}
@@ -65,12 +72,14 @@ ${linesBlock}
 Tone guidance: ${tier}
 
 Requirements:
-- Sound like ${ownerName} wrote it personally — warm human voice, not marketing or automated.
+- Use this exact greeting format at the top: "Hi ${clientFirstName},"
+- Sound like ${senderName} wrote it personally — warm human voice, not marketing or automated.
 - Where line items or memo describe specific work, naturally mention that substance (what was done or sold), not only the invoice number and dollar amount.
 - No legalese unless tier is 90+ (then brief and factual).
 - 2–4 short paragraphs max.
 - Include a clear ask to pay or reply with questions.
 - Subject line: one line, specific, not spammy.
+- Sign the email with the sender's name: ${senderName}. Do not use their email address.
 
 Respond with JSON only, shape: {"subject":"...","body":"..."}`;
 

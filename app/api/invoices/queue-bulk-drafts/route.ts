@@ -1,4 +1,5 @@
 import { draftReminderEmail } from "@/lib/anthropic/draft";
+import { getUserDisplayName } from "@/lib/auth/display-name";
 import { serverError } from "@/lib/api/errors";
 import { requireUserFromRequest } from "@/lib/api/require-user-request";
 import { createRouteHandlerClient } from "@/lib/supabase/route-client";
@@ -24,7 +25,7 @@ export async function POST(request: NextRequest) {
     return serverError(error.message);
   }
 
-  const ownerName = ctx.user.email?.split("@")[0] ?? "there";
+  const senderName = getUserDisplayName(ctx.user);
   const queue: {
     invoiceId: string;
     clientName: string;
@@ -47,7 +48,8 @@ export async function POST(request: NextRequest) {
           line_items: inv.line_items ?? null,
           memo: inv.memo ?? null,
         },
-        ownerName
+        senderName,
+        inv.client_name
       );
       queue.push({
         invoiceId: inv.id,

@@ -1,4 +1,5 @@
 import { draftReminderEmail } from "@/lib/anthropic/draft";
+import { getUserDisplayName } from "@/lib/auth/display-name";
 import { notFound, serverError } from "@/lib/api/errors";
 import { requireUserFromRequest } from "@/lib/api/require-user-request";
 import { sendGmailMessage } from "@/lib/gmail/send";
@@ -62,7 +63,7 @@ export async function POST(request: NextRequest) {
     .update({ gmail_token: fresh as unknown as Record<string, unknown> })
     .eq("id", ctx.user.id);
 
-  const ownerName = ctx.user.email?.split("@")[0] ?? "there";
+  const senderName = getUserDisplayName(ctx.user);
   let subject = parsed.data.subject;
   let body = parsed.data.body;
 
@@ -77,7 +78,8 @@ export async function POST(request: NextRequest) {
         line_items: inv.line_items ?? null,
         memo: inv.memo ?? null,
       },
-      ownerName
+      senderName,
+      inv.client_name
     );
     subject = subject ?? draft.subject;
     body = body ?? draft.body;

@@ -17,6 +17,7 @@ var VERSION = '1.0.1';
 var PROP_API = 'PAID_API_BASE';
 var PROP_API_KEY = 'PAID_API_KEY';
 var PROP_API_KEY_EXPIRES_AT = 'PAID_API_KEY_EXPIRES_AT';
+var PROP_USER_DISPLAY_NAME = 'PAID_USER_DISPLAY_NAME';
 
 /** Cohort dot swatches (Linear-style accents) */
 var DOT_90 = 'https://placehold.co/10x10/dc2626/dc2626.png';
@@ -85,7 +86,10 @@ function onDraftReminder(e) {
   try {
     var res = paidFetch_('/api/invoices/draft-reminder', {
       method: 'post',
-      payload: JSON.stringify({ invoiceId: id }),
+      payload: JSON.stringify({
+        invoiceId: id,
+        senderName: getUserDisplayName_(),
+      }),
     });
     if (res.statusCode < 200 || res.statusCode >= 300) {
       return CardService.newActionResponseBuilder()
@@ -1159,6 +1163,25 @@ function getApiBase_() {
 
 function getApiKey_() {
   return PropertiesService.getUserProperties().getProperty(PROP_API_KEY) || '';
+}
+
+function getUserDisplayName_() {
+  var explicitName =
+    PropertiesService.getUserProperties().getProperty(PROP_USER_DISPLAY_NAME) || '';
+  if (explicitName) return explicitName;
+  var base = getApiBase_();
+  if (!base) return 'Paid Team';
+  try {
+    var host = base
+      .replace(/^https?:\/\//i, '')
+      .replace(/\/.*$/, '')
+      .split('.')[0];
+    var cleaned = host.replace(/[^a-zA-Z]/g, '');
+    if (!cleaned) return 'Paid Team';
+    return cleaned.charAt(0).toUpperCase() + cleaned.slice(1).toLowerCase();
+  } catch (err) {
+    return 'Paid Team';
+  }
 }
 
 function trimSlash_(s) {
