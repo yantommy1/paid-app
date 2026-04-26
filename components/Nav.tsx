@@ -8,6 +8,7 @@ import { useMemo, useState } from "react";
 
 type NavProps = {
   userEmail?: string | null;
+  userDisplayName?: string | null;
 };
 
 function initialForEmail(email: string | null | undefined): string {
@@ -15,7 +16,7 @@ function initialForEmail(email: string | null | undefined): string {
   return value.length > 0 ? value.charAt(0).toUpperCase() : "?";
 }
 
-export function Nav({ userEmail = null }: NavProps) {
+export function Nav({ userEmail = null, userDisplayName = null }: NavProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
@@ -61,7 +62,9 @@ export function Nav({ userEmail = null }: NavProps) {
               aria-expanded={open}
               aria-haspopup="menu"
             >
-              <span className="hidden max-w-[220px] truncate text-[#6B6B6B] sm:block">{userEmail}</span>
+              <span className="hidden max-w-[220px] truncate text-[#6B6B6B] sm:block">
+                {userDisplayName || userEmail}
+              </span>
               <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#E5E5E5] bg-white">
                 {initials}
               </span>

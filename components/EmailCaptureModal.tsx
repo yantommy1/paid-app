@@ -20,6 +20,8 @@ export function EmailCaptureModal({
   skipCapture = false,
 }: Props) {
   const emailId = useId();
+  const nameId = useId();
+  const [firstName, setFirstName] = useState("");
   const [email, setEmail] = useState(initialEmail ?? "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -27,10 +29,11 @@ export function EmailCaptureModal({
   useEffect(() => {
     if (!isOpen) return;
     setEmail(initialEmail ?? "");
+    setFirstName("");
     setError(null);
   }, [isOpen, initialEmail]);
 
-  const startCheckout = useCallback(async (checkoutEmail: string) => {
+  const startCheckout = useCallback(async (checkoutEmail: string, checkoutName?: string) => {
     setLoading(true);
     setError(null);
     try {
@@ -39,6 +42,7 @@ export function EmailCaptureModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           email: checkoutEmail,
+          name: checkoutName?.trim() || undefined,
           priceId,
           plan,
         }),
@@ -65,7 +69,7 @@ export function EmailCaptureModal({
       setError("Please enter your email.");
       return;
     }
-    await startCheckout(normalized);
+    await startCheckout(normalized, firstName);
   }
 
   useEffect(() => {
@@ -87,6 +91,20 @@ export function EmailCaptureModal({
 
         {!skipCapture && (
           <form className="space-y-4" onSubmit={onSubmit}>
+            <div>
+              <label htmlFor={nameId} className="mb-1 block text-sm text-[#6B6B6B]">
+                First name
+              </label>
+              <input
+                id={nameId}
+                type="text"
+                value={firstName}
+                required
+                onChange={(e) => setFirstName(e.target.value)}
+                className="w-full border border-[#E5E5E5] bg-white px-3 py-2.5 text-sm text-[#0D0D0D] outline-none focus:border-[#1B4332]"
+                placeholder="Tommy"
+              />
+            </div>
             <div>
               <label htmlFor={emailId} className="mb-1 block text-sm text-[#6B6B6B]">
                 Work email

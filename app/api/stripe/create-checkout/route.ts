@@ -7,6 +7,7 @@ const BodySchema = z.object({
   priceId: z.string().min(1),
   plan: z.enum(["starter", "pro"]).optional(),
   email: z.string().email(),
+  name: z.string().trim().min(1).max(80).optional(),
 });
 
 const APP_BASE = "https://paid-app.com";
@@ -14,13 +15,23 @@ const SUCCESS_URL = `${APP_BASE}/success?session_id={CHECKOUT_SESSION_ID}`;
 const CANCEL_URL = `${APP_BASE}`;
 
 export async function POST(request: NextRequest) {
-  if (!process.env.STRIPE_SECRET_KEY) {
-    return serverError("Stripe is not configured.", 500);
-  }
+  const stripeSecret = process.env.STRIPE_SECRET_KEY;
   const starter = process.env.STRIPE_STARTER_PRICE_ID?.trim();
   const pro = process.env.STRIPE_PRO_PRICE_ID?.trim();
+
+  if (!stripeSecret) {
+    console.error("[create-checkout] Missing STRIPE_SECRET_KEY");
+    return serverError("Missing environment variable: STRIPE_SECRET_KEY", 500);
+  }
   if (!starter || !pro) {
-    return serverError("Pricing is not configured.", 500);
+    console.error("[create-checkout] Missing price IDs", {
+      hasStarter: Boolean(starter),
+      hasPro: Boolean(pro),
+    });
+    return serverError(
+      "Missing environment variables: STRIPE_STARTER_PRICE_ID or STRIPE_PRO_PRICE_ID",
+      500
+    );
   }
 
   let json: unknown = null;
@@ -35,23 +46,44 @@ export async function POST(request: NextRequest) {
     return serverError("Invalid payload", 400);
   }
 
-  const { priceId, plan, email } = payload.data;
+  const { priceId, plan, email, name } = payload.data;
   if (priceId !== starter && priceId !== pro) {
+    console.error("[create-checkout] Invalid priceId", { priceId });
     return serverError("Invalid priceId", 400);
   }
 
-  const stripe = getStripe();
+  let stripe;
+  try {
+    stripe = getStripe();
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Unknown Stripe init error";
+    console.error("[create-checkout] Stripe client initialization failed", { message });
+    return serverError(`Stripe initialization failed: ${message}`, 500);
+  }
 
   try {
     const normalizedEmail = email.trim().toLowerCase();
+    const normalizedName = name?.trim() || undefined;
     const customerSearch = await stripe.customers.list({
       email: normalizedEmail,
       limit: 1,
     });
     let customerId = customerSearch.data[0]?.id ?? null;
     if (!customerId) {
-      const customer = await stripe.customers.create({ email: normalizedEmail });
+      const customer = await stripe.customers.create({
+        email: normalizedEmail,
+        name: normalizedName,
+      });
       customerId = customer.id;
+      console.info("[create-checkout] Created customer", {
+        customerId,
+        email: normalizedEmail,
+      });
+    } else {
+      console.info("[create-checkout] Reused customer", {
+        customerId,
+        email: normalizedEmail,
+      });
     }
 
     const session = await stripe.checkout.sessions.create({
@@ -68,6 +100,7 @@ export async function POST(request: NextRequest) {
       cancel_url: CANCEL_URL,
       metadata: {
         checkout_email: normalizedEmail,
+        checkout_name: normalizedName ?? "",
         plan: plan ?? "starter",
         checkout_purpose: "saas_subscription",
       },
@@ -80,9 +113,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ url: session.url });
   } catch (e) {
     const message = e instanceof Error ? e.message : "";
+    console.error("[create-checkout] Failed to create checkout session", {
+      error: message || "unknown",
+      requestPath: request.nextUrl.pathname,
+    });
     if (message.includes("No such price")) {
       return serverError("Selected plan is unavailable. Please try again.", 400);
     }
-    return serverError("Unable to start checkout right now.", 500);
+    if (message.includes("Invalid API Key")) {
+      return serverError("Stripe API key is invalid. Check STRIPE_SECRET_KEY.", 500);
+    }
+    return serverError(`Checkout failed: ${message || "unknown Stripe error"}`, 500);
   }
 }

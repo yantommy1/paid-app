@@ -5,15 +5,15 @@ import { EmailCaptureModal } from "@/components/EmailCaptureModal";
 import { GmailSidebarMockup } from "@/components/landing/GmailSidebarMockup";
 import { SectionReveal } from "@/components/landing/SectionReveal";
 import { SmartLogoLink } from "@/components/SmartLogoLink";
+import { getUserDisplayName } from "@/lib/auth/display-name";
 import { createClient } from "@/lib/supabase/browser";
 import type { User } from "@supabase/supabase-js";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
 function navAvatarLetter(user: User): string {
-  const meta = user.user_metadata as { full_name?: string; name?: string } | undefined;
-  const name = meta?.full_name ?? meta?.name;
-  const trimmed = typeof name === "string" ? name.trim() : "";
+  const displayName = getUserDisplayName(user);
+  const trimmed = displayName.trim();
   if (trimmed.length > 0) return trimmed.charAt(0).toUpperCase();
   return (user.email ?? "?").charAt(0).toUpperCase();
 }
@@ -29,6 +29,7 @@ export function HomeLanding({
   const [navShadow, setNavShadow] = useState(false);
   const [openPlan, setOpenPlan] = useState<"starter" | "pro" | null>(null);
   const [user, setUser] = useState<User | null>(null);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [summary, setSummary] = useState<{
     totalOutstanding: number;
     overdueInvoiceCount: number;
@@ -37,10 +38,16 @@ export function HomeLanding({
 
   useEffect(() => {
     const supabase = createClient();
-    void supabase.auth.getUser().then(({ data: { user: u } }) => setUser(u));
+    void supabase.auth.getSession().then(({ data: { session } }) => {
+      setIsLoggedIn(Boolean(session?.user));
+      setUser(session?.user ?? null);
+    });
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_, session) => setUser(session?.user ?? null));
+    } = supabase.auth.onAuthStateChange((_, session) => {
+      setIsLoggedIn(Boolean(session?.user));
+      setUser(session?.user ?? null);
+    });
     return () => subscription.unsubscribe();
   }, []);
 
@@ -95,13 +102,13 @@ export function HomeLanding({
       >
         <div className="mx-auto flex w-full max-w-[1200px] items-center justify-between px-6 py-5">
           <SmartLogoLink
-            loggedIn={!!user}
+            loggedIn={isLoggedIn}
             className="font-display text-4xl font-semibold text-[#0D0D0D]"
           />
-          {user ? (
+          {isLoggedIn ? (
             <div className="flex items-center gap-3">
               <span className="flex h-8 w-8 items-center justify-center rounded-full border border-[#E5E5E5] text-sm text-[#0D0D0D]">
-                {navAvatarLetter(user)}
+                {user ? navAvatarLetter(user) : "?"}
               </span>
               <Link href="/dashboard" className="text-sm text-[#0D0D0D]">
                 Dashboard
@@ -267,6 +274,7 @@ export function HomeLanding({
           </div>
         </section>
 
+        {!isLoggedIn && (
         <section className="bg-[#F7F7F5] py-24">
           <div className="mx-auto grid w-full max-w-[1200px] gap-12 px-6 lg:grid-cols-2 lg:gap-20">
             <SectionReveal>
@@ -293,8 +301,9 @@ export function HomeLanding({
             </SectionReveal>
           </div>
         </section>
+        )}
 
-        {!user ? (
+        {!isLoggedIn ? (
         <section className="bg-white py-24">
           <div className="mx-auto w-full max-w-[1200px] px-6">
             <SectionReveal>
@@ -339,7 +348,7 @@ export function HomeLanding({
               <div className="mx-auto max-w-3xl border border-[#E5E5E5] bg-white p-10 text-center">
                 <p className="text-sm uppercase tracking-[0.2em] text-[#1B4332]">Welcome back</p>
                 <h2 className="mt-3 font-display text-4xl text-[#0D0D0D]">
-                  Welcome back, {user.email ?? "there"}
+                  Welcome back, {user ? getUserDisplayName(user) : "there"}
                 </h2>
                 <div className="mt-10 grid gap-4 sm:grid-cols-3">
                   <article className="border border-[#E5E5E5] bg-white p-4">
@@ -507,7 +516,7 @@ export function HomeLanding({
           plan={openPlan}
           priceId={openPlan === "starter" ? starterPriceId : proPriceId}
           initialEmail={user?.email ?? null}
-          skipCapture={Boolean(user?.email)}
+          skipCapture={Boolean(isLoggedIn && user?.email)}
         />
       )}
     </div>

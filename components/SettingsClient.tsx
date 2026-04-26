@@ -9,7 +9,7 @@ const GMAIL_ADDON_INSTALL_URL =
   "https://script.google.com/macros/s/AKfycbziHm_MsqZ3dRjMoDyKgHUYpkTATh7Bu4B7f82YD8l9/exec";
 
 type Props = {
-  email: string;
+  displayName: string;
   quickbooksConnected: boolean;
   gmailConnected: boolean;
   quickbooksRealmId: string | null;
@@ -24,7 +24,7 @@ function StatusDot({ connected }: { connected: boolean }) {
 }
 
 export function SettingsClient({
-  email,
+  displayName,
   quickbooksConnected: qbInitial,
   gmailConnected: gmInitial,
   quickbooksRealmId,
@@ -148,7 +148,7 @@ export function SettingsClient({
       <header className="flex flex-col gap-6 border-b border-[#E5E5E5] pb-10 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-4">
           <Link href="/dashboard" className="inline-flex items-center gap-2 text-sm text-[#6B6B6B]">← Back to dashboard</Link>
-          <p className="text-sm text-[#6B6B6B]">Signed in as {email}</p>
+          <p className="text-sm text-[#6B6B6B]">Signed in as {displayName}</p>
         </div>
       </header>
 

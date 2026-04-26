@@ -1,5 +1,6 @@
 import { SettingsClient } from "@/components/SettingsClient";
 import { Nav } from "@/components/Nav";
+import { getUserDisplayName } from "@/lib/auth/display-name";
 import { planNameFromStripePriceId } from "@/lib/billing/plan-name";
 import { createClient } from "@/lib/supabase/server";
 import type { QuickBooksToken } from "@/lib/types";
@@ -34,10 +35,10 @@ export default async function SettingsPage() {
 
   return (
     <main className="min-h-screen bg-white text-[#0D0D0D]">
-      <Nav userEmail={user.email ?? null} />
+      <Nav userEmail={user.email ?? null} userDisplayName={getUserDisplayName(user)} />
       <div className="mx-auto max-w-[1200px] px-6 py-12">
         <SettingsClient
-          email={user.email ?? profile?.email ?? ""}
+          displayName={getUserDisplayName(user)}
           quickbooksConnected={profile?.quickbooks_token != null}
           gmailConnected={profile?.gmail_token != null}
           quickbooksRealmId={realmId.length > 0 ? realmId : null}

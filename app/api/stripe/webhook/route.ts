@@ -11,7 +11,7 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 import type Stripe from "stripe";
 
-async function ensureUserForCheckoutEmail(email: string) {
+async function ensureUserForCheckoutEmail(email: string, firstName?: string) {
   const admin = createAdminClient();
   const normalizedEmail = email.trim().toLowerCase();
 
@@ -27,6 +27,12 @@ async function ensureUserForCheckoutEmail(email: string) {
   const created = await admin.auth.admin.createUser({
     email: normalizedEmail,
     email_confirm: true,
+    user_metadata: firstName
+      ? {
+          name: firstName,
+          full_name: firstName,
+        }
+      : undefined,
   });
   if (created.error || !created.data.user) {
     throw new Error("Could not create account.");
@@ -37,6 +43,7 @@ async function ensureUserForCheckoutEmail(email: string) {
       id: created.data.user.id,
       email: normalizedEmail,
       onboarding_completed: false,
+      name: firstName ?? null,
     },
     { onConflict: "id" }
   );
@@ -107,6 +114,7 @@ export async function POST(request: NextRequest) {
       )
         .trim()
         .toLowerCase();
+      const checkoutName = (session.metadata?.checkout_name ?? "").trim();
 
       if (session.mode === "subscription" && purpose === "saas_subscription" && checkoutEmail) {
         const subRef = session.subscription;
@@ -116,7 +124,10 @@ export async function POST(request: NextRequest) {
           typeof custRef === "string" ? custRef : custRef?.id ?? null;
         if (subId && customerId) {
           try {
-            const userId = await ensureUserForCheckoutEmail(checkoutEmail);
+            const userId = await ensureUserForCheckoutEmail(
+              checkoutEmail,
+              checkoutName || undefined
+            );
             const subscription = await stripe.subscriptions.retrieve(subId, {
               expand: ["items.data.price"],
             });

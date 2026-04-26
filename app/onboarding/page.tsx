@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { getUserDisplayName } from "@/lib/auth/display-name";
 import { postLoginPathForState } from "@/lib/auth/post-login-path";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
@@ -47,7 +48,7 @@ export default async function OnboardingPage({
       <div className="mx-auto max-w-2xl">
         <OnboardingClient
           initialStep={params.step}
-          email={user.email ?? ""}
+          displayName={getUserDisplayName(user)}
           quickbooksConnected={quickbooksConnected}
           gmailConnected={gmailConnected}
         />

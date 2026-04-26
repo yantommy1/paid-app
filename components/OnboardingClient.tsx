@@ -25,12 +25,12 @@ function ConnectedPill() {
 
 type Props = {
   initialStep?: string;
-  email: string;
+  displayName: string;
   quickbooksConnected: boolean;
   gmailConnected: boolean;
 };
 
-export function OnboardingClient({ initialStep, email, quickbooksConnected, gmailConnected }: Props) {
+export function OnboardingClient({ initialStep, displayName, quickbooksConnected, gmailConnected }: Props) {
   const router = useRouter();
   const [completing, setCompleting] = useState(false);
   const [completeError, setCompleteError] = useState<string | null>(null);
@@ -116,7 +116,7 @@ export function OnboardingClient({ initialStep, email, quickbooksConnected, gmai
         <div>
           <SmartLogoLink loggedIn className="font-display text-3xl text-[#0D0D0D]" />
           <p className="mt-2 text-xs uppercase tracking-[0.18em] text-[#6B6B6B]">Setup</p>
-          <p className="mt-4 text-sm text-[#6B6B6B]">Signed in as {email}</p>
+          <p className="mt-4 text-sm text-[#6B6B6B]">Signed in as {displayName}</p>
         </div>
         <button type="button" onClick={() => void signOut()} className="border border-[#1B4332] px-4 py-2 text-sm text-[#1B4332]">Sign out</button>
       </header>
