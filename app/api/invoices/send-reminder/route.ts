@@ -1,4 +1,4 @@
-import { draftReminderEmail } from "@/lib/anthropic/draft";
+import { buildReminderForInvoice } from "@/lib/invoices/build-reminder";
 import { getUserDisplayName } from "@/lib/auth/display-name";
 import { notFound, serverError } from "@/lib/api/errors";
 import { requireUserFromRequest } from "@/lib/api/require-user-request";
@@ -15,6 +15,9 @@ const BodySchema = z.object({
   subject: z.string().optional(),
   body: z.string().optional(),
   channel: z.enum(["web", "addon"]).optional(),
+  tone: z.enum(["friendly", "professional", "firm"]).optional(),
+  payNowIncluded: z.boolean().optional(),
+  discountPct: z.number().nullable().optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -66,23 +69,19 @@ export async function POST(request: NextRequest) {
   const senderName = getUserDisplayName(ctx.user);
   let subject = parsed.data.subject;
   let body = parsed.data.body;
+  let tone: string | null = parsed.data.tone ?? null;
+  let payNowIncluded = parsed.data.payNowIncluded ?? false;
+  let discountPct: number | null = parsed.data.discountPct ?? null;
 
   if (!subject || !body) {
-    const draft = await draftReminderEmail(
-      {
-        client_name: inv.client_name,
-        amount: inv.amount,
-        days_overdue: inv.days_overdue,
-        due_date: inv.due_date,
-        quickbooks_invoice_id: inv.quickbooks_invoice_id,
-        line_items: inv.line_items ?? null,
-        memo: inv.memo ?? null,
-      },
-      senderName,
-      inv.client_name
-    );
-    subject = subject ?? draft.subject;
-    body = body ?? draft.body;
+    const built = await buildReminderForInvoice(supabase, ctx.user.id, inv, senderName, {
+      toneOverride: parsed.data.tone,
+    });
+    subject = subject ?? built.subject;
+    body = body ?? built.body;
+    tone = tone ?? built.tone;
+    payNowIncluded = payNowIncluded || built.payNowIncluded;
+    discountPct = discountPct ?? built.discountPct;
   }
 
   try {
@@ -104,12 +103,17 @@ export async function POST(request: NextRequest) {
       channel: parsed.data.channel ?? "web",
       subject,
       sent_to: inv.client_email,
+      tone,
+      pay_link_included: payNowIncluded,
+      discount_pct: discountPct,
     });
 
     return NextResponse.json({
       ok: true,
       messageId: sent.id,
       sentAt: now,
+      tone,
+      payNowIncluded,
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Send failed";

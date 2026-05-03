@@ -1,4 +1,4 @@
-import { draftReminderEmail } from "@/lib/anthropic/draft";
+import { buildReminderForInvoice } from "@/lib/invoices/build-reminder";
 import { getUserDisplayName } from "@/lib/auth/display-name";
 import { notFound, serverError } from "@/lib/api/errors";
 import { requireUserFromRequest } from "@/lib/api/require-user-request";
@@ -9,6 +9,10 @@ import { z } from "zod";
 const BodySchema = z.object({
   invoiceId: z.string().uuid(),
   senderName: z.string().min(1).max(120).optional(),
+  tone: z.enum(["friendly", "professional", "firm"]).optional(),
+  discountPct: z.number().min(0).max(50).nullable().optional(),
+  paymentPlanEnabled: z.boolean().nullable().optional(),
+  disablePayLink: z.boolean().optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -42,20 +46,26 @@ export async function POST(request: NextRequest) {
   const senderName = parsed.data.senderName ?? getUserDisplayName(ctx.user);
 
   try {
-    const draft = await draftReminderEmail(
-      {
-        client_name: inv.client_name,
-        amount: inv.amount,
-        days_overdue: inv.days_overdue,
-        due_date: inv.due_date,
-        quickbooks_invoice_id: inv.quickbooks_invoice_id,
-        line_items: inv.line_items ?? null,
-        memo: inv.memo ?? null,
-      },
+    const built = await buildReminderForInvoice(
+      supabase,
+      ctx.user.id,
+      inv,
       senderName,
-      inv.client_name
+      {
+        toneOverride: parsed.data.tone,
+        discountPctOverride: parsed.data.discountPct,
+        paymentPlanOverride: parsed.data.paymentPlanEnabled,
+        disablePayLink: parsed.data.disablePayLink,
+      }
     );
-    return NextResponse.json({ subject: draft.subject, body: draft.body });
+    return NextResponse.json({
+      subject: built.subject,
+      body: built.body,
+      tone: built.tone,
+      payNowUrl: built.payNowUrl,
+      payNowIncluded: built.payNowIncluded,
+      discountPct: built.discountPct,
+    });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Draft failed";
     return serverError(message);

@@ -1,4 +1,4 @@
-import { draftReminderEmail } from "@/lib/anthropic/draft";
+import { buildReminderForInvoice } from "@/lib/invoices/build-reminder";
 import { getUserDisplayName } from "@/lib/auth/display-name";
 import { serverError } from "@/lib/api/errors";
 import { requireUserFromRequest } from "@/lib/api/require-user-request";
@@ -34,37 +34,34 @@ export async function POST(request: NextRequest) {
     daysOverdue: number;
     subject: string;
     body: string;
+    tone: string;
+    payNowIncluded: boolean;
   }[] = [];
 
   for (const inv of invoices ?? []) {
     try {
-      const draft = await draftReminderEmail(
-        {
-          client_name: inv.client_name,
-          amount: inv.amount,
-          days_overdue: inv.days_overdue,
-          due_date: inv.due_date,
-          quickbooks_invoice_id: inv.quickbooks_invoice_id,
-          line_items: inv.line_items ?? null,
-          memo: inv.memo ?? null,
-        },
-        senderName,
-        inv.client_name
-      );
+      const built = await buildReminderForInvoice(supabase, ctx.user.id, inv, senderName);
       queue.push({
         invoiceId: inv.id,
         clientName: inv.client_name,
         clientEmail: inv.client_email,
         amount: Number(inv.amount),
         daysOverdue: inv.days_overdue,
-        subject: draft.subject,
-        body: draft.body,
+        subject: built.subject,
+        body: built.body,
+        tone: built.tone,
+        payNowIncluded: built.payNowIncluded,
       });
       await supabase
         .from("invoices")
         .update({
           reminder_pending: true,
-          reminder_draft: JSON.stringify(draft),
+          reminder_draft: JSON.stringify({
+            subject: built.subject,
+            body: built.body,
+            tone: built.tone,
+            payNowIncluded: built.payNowIncluded,
+          }),
         })
         .eq("id", inv.id);
     } catch {

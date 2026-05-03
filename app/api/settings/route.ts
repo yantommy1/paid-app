@@ -9,7 +9,32 @@ const PatchSchema = z.object({
   fee_30_day: z.number().min(0).max(100).optional(),
   fee_60_day: z.number().min(0).max(100).optional(),
   fee_90_day: z.number().min(0).max(100).optional(),
+  tone_default: z.enum(["friendly", "professional", "firm"]).optional(),
+  tone_auto_adjust: z.boolean().optional(),
+  payment_link_enabled: z.boolean().optional(),
+  early_pay_discount_pct: z.number().min(0).max(50).optional(),
+  early_pay_discount_days: z.number().int().min(1).max(60).optional(),
+  payment_plan_enabled: z.boolean().optional(),
+  payment_plan_installments: z.number().int().min(2).max(12).optional(),
+  pay_now_button_label: z.string().min(1).max(64).optional(),
 });
+
+export async function GET(request: NextRequest) {
+  const ctx = await requireUserFromRequest(request);
+  if (ctx.response) return ctx.response;
+
+  const supabase = await createRouteHandlerClient(request);
+  const { data, error } = await supabase
+    .from("settings")
+    .select("*")
+    .eq("user_id", ctx.user.id)
+    .maybeSingle();
+
+  if (error) {
+    return serverError(error.message);
+  }
+  return NextResponse.json({ settings: data ?? null });
+}
 
 export async function PATCH(request: NextRequest) {
   const ctx = await requireUserFromRequest(request);

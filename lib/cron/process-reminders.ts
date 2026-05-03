@@ -1,6 +1,5 @@
-import { draftReminderEmail } from "@/lib/anthropic/draft";
+import { buildReminderForInvoice } from "@/lib/invoices/build-reminder";
 import { displayNameFromEmail } from "@/lib/auth/display-name";
-import { sendGmailMessage } from "@/lib/gmail/send";
 import { ensureGmailToken, ensureQuickBooksToken } from "@/lib/oauth/tokens";
 import type { GmailToken, QuickBooksToken } from "@/lib/types";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -12,13 +11,17 @@ type UserRow = {
   gmail_token: GmailToken | null;
 };
 
-/** Returns counts for logging */
+/**
+ * Daily cron: drafts reminders for every overdue invoice and queues them for the user
+ * to approve in the Gmail Add-On. Never auto-sends — that is an explicit product decision.
+ */
 export async function processDailyReminders(
   supabase: SupabaseClient,
   user: UserRow,
-  settings: { auto_send_enabled: boolean }
+  // Kept for backwards compatibility; ignored. Drafts are always queued, never auto-sent.
+  _settings: { auto_send_enabled: boolean }
 ): Promise<{ sent: number; queued: number; skipped: number }> {
-  let sent = 0;
+  void _settings;
   let queued = 0;
   let skipped = 0;
 
@@ -50,60 +53,34 @@ export async function processDailyReminders(
   const senderName = displayNameFromEmail(user.email);
 
   for (const inv of invoices) {
-    const last = inv.reminder_sent_at
-      ? new Date(inv.reminder_sent_at).getTime()
-      : 0;
+    const last = inv.reminder_sent_at ? new Date(inv.reminder_sent_at).getTime() : 0;
     const dayMs = 86400000;
     const daysSince = last ? (Date.now() - last) / dayMs : 999;
-    // Avoid spamming: at most one reminder per tier crossing / 24h — simplified: once per day max
+    // Avoid spamming: at most one draft refresh per 24h
     if (daysSince < 0.9) {
       skipped++;
       continue;
     }
 
-    const draft = await draftReminderEmail(
-      {
-        client_name: inv.client_name,
-        amount: inv.amount,
-        days_overdue: inv.days_overdue,
-        due_date: inv.due_date,
-        quickbooks_invoice_id: inv.quickbooks_invoice_id,
-        line_items: inv.line_items ?? null,
-        memo: inv.memo ?? null,
-      },
-      senderName,
-      inv.client_name
-    );
-
-    if (settings.auto_send_enabled) {
-      await sendGmailMessage(gm, inv.client_email, draft.subject, draft.body);
-      await supabase
-        .from("invoices")
-        .update({
-          reminder_sent_at: new Date().toISOString(),
-          reminder_pending: false,
-          reminder_draft: null,
-        })
-        .eq("id", inv.id);
-      await supabase.from("reminder_logs").insert({
-        user_id: user.id,
-        invoice_id: inv.id,
-        channel: "cron",
-        subject: draft.subject,
-        sent_to: inv.client_email,
-      });
-      sent++;
-    } else {
+    try {
+      const built = await buildReminderForInvoice(supabase, user.id, inv, senderName);
       await supabase
         .from("invoices")
         .update({
           reminder_pending: true,
-          reminder_draft: JSON.stringify(draft),
+          reminder_draft: JSON.stringify({
+            subject: built.subject,
+            body: built.body,
+            tone: built.tone,
+            payNowIncluded: built.payNowIncluded,
+          }),
         })
         .eq("id", inv.id);
       queued++;
+    } catch {
+      skipped++;
     }
   }
 
-  return { sent, queued, skipped };
+  return { sent: 0, queued, skipped };
 }

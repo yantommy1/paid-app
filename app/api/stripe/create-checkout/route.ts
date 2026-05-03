@@ -5,7 +5,7 @@ import { z } from "zod";
 
 const BodySchema = z.object({
   priceId: z.string().min(1),
-  plan: z.enum(["starter", "pro"]).optional(),
+  plan: z.enum(["starter", "pro", "firm"]).optional(),
   email: z.string().email(),
   fullName: z.string().trim().min(1).max(160).optional(),
   firstName: z.string().trim().min(1).max(80).optional(),
@@ -20,6 +20,7 @@ export async function POST(request: NextRequest) {
   const stripeSecret = process.env.STRIPE_SECRET_KEY;
   const starter = process.env.STRIPE_STARTER_PRICE_ID?.trim();
   const pro = process.env.STRIPE_PRO_PRICE_ID?.trim();
+  const firm = process.env.STRIPE_FIRM_PRICE_ID?.trim();
 
   if (!stripeSecret) {
     console.error("[create-checkout] Missing STRIPE_SECRET_KEY");
@@ -29,6 +30,7 @@ export async function POST(request: NextRequest) {
     console.error("[create-checkout] Missing price IDs", {
       hasStarter: Boolean(starter),
       hasPro: Boolean(pro),
+      hasFirm: Boolean(firm),
     });
     return serverError(
       "Missing environment variables: STRIPE_STARTER_PRICE_ID or STRIPE_PRO_PRICE_ID",
@@ -49,7 +51,8 @@ export async function POST(request: NextRequest) {
   }
 
   const { priceId, plan, email, fullName, firstName, lastName } = payload.data;
-  if (priceId !== starter && priceId !== pro) {
+  const validPriceIds = [starter, pro, firm].filter(Boolean) as string[];
+  if (!validPriceIds.includes(priceId)) {
     console.error("[create-checkout] Invalid priceId", { priceId });
     return serverError("Invalid priceId", 400);
   }

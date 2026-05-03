@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { InvoiceRow } from "@/lib/types";
+import { type Tone, toneGuidanceCopy } from "@/lib/tone/compute";
 
 /** Override with ANTHROPIC_MODEL in .env if your account uses a different ID. */
 const DEFAULT_MODEL = "claude-3-5-sonnet-20241022";
@@ -18,6 +19,14 @@ function getModel(): string {
   return process.env.ANTHROPIC_MODEL?.trim() || DEFAULT_MODEL;
 }
 
+export type DraftOptions = {
+  tone?: Tone;
+  /** Optional copy appended verbatim after the AI body, e.g. "Pay this invoice online: <link>" */
+  paymentLineHint?: string;
+  /** Optional one-line offer to include in the body, e.g. "2% discount if paid within 7 days" */
+  earlyPayOfferLine?: string;
+};
+
 export async function draftReminderEmail(
   invoice: Pick<
     InvoiceRow,
@@ -30,16 +39,13 @@ export async function draftReminderEmail(
     | "memo"
   >,
   senderName: string,
-  clientName: string
-): Promise<{ subject: string; body: string }> {
+  clientName: string,
+  options: DraftOptions = {}
+): Promise<{ subject: string; body: string; tone: Tone }> {
   const client = getAnthropicClient();
   const model = getModel();
-  const tier =
-    invoice.days_overdue >= 90
-      ? "90+ days: serious, urgent, still respectful — owner personally needs this resolved."
-      : invoice.days_overdue >= 60
-        ? "60+ days: firm, professional, clear consequences without threats."
-        : "30+ days: friendly, casual, assume good intent — a gentle nudge from the owner.";
+  const tone: Tone = options.tone ?? "professional";
+  const toneGuidance = toneGuidanceCopy(tone, invoice.days_overdue);
 
   const memoBlock =
     invoice.memo?.trim() ?
@@ -57,7 +63,11 @@ export async function draftReminderEmail(
       .split(/\s+/)[0]
       ?.replace(/[^a-zA-Z'-]/g, "") || "there";
 
-  const prompt = `You are helping ${senderName} write a short payment reminder for their small professional services business.
+  const earlyPayInstruction = options.earlyPayOfferLine
+    ? `Mention this offer naturally in the body (do not just paste the phrase verbatim): "${options.earlyPayOfferLine}".`
+    : "Do not invent any discount or payment plan offer.";
+
+  const prompt = `You are helping ${senderName} write a short payment reminder for their professional services business (engineering, architecture, or similar).
 
 Invoice reference: ${invoice.quickbooks_invoice_id}
 Client: ${invoice.client_name}
@@ -69,19 +79,21 @@ ${memoBlock}
 
 ${linesBlock}
 
-Tone guidance: ${tier}
+Tone: ${tone}
+Tone guidance: ${toneGuidance}
 
 Requirements:
 - Use this exact greeting format at the top: "Hi ${clientFirstName},"
-- Sound like ${senderName} wrote it personally — warm human voice, not marketing or automated.
+- Sound like ${senderName} wrote it personally — warm human voice, not marketing or automated. Avoid corporate filler.
 - Where line items or memo describe specific work, naturally mention that substance (what was done or sold), not only the invoice number and dollar amount.
-- No legalese unless tier is 90+ (then brief and factual).
-- 2–4 short paragraphs max.
+- ${earlyPayInstruction}
+- No legalese unless tone is firm and days overdue >= 90 (then brief and factual, never threatening).
+- 2 to 4 short paragraphs max.
 - Include a clear ask to pay or reply with questions.
-- Subject line: one line, specific, not spammy.
+- Do NOT include a payment link or Pay Now URL — that is appended automatically below your sign-off.
+- Subject line: one line, specific to this invoice and client, not spammy.
 - Sign the email with the sender's name: ${senderName}. Do not use their email address.
-- End the email with the following closing exactly: Thanks, ${senderName}. Do not omit the Thanks, closing under any circumstances.
-- The final lines must be formatted exactly as:
+- End the body with the following closing exactly:
   [blank line]
   Thanks,
   [blank line]
@@ -106,5 +118,11 @@ Respond with JSON only, shape: {"subject":"...","body":"..."}`;
   if (!parsed.subject || !parsed.body) {
     throw new Error("Invalid draft shape from Anthropic");
   }
-  return { subject: parsed.subject, body: parsed.body };
+
+  let body = parsed.body;
+  if (options.paymentLineHint) {
+    body = `${body.trimEnd()}\n\n${options.paymentLineHint}`;
+  }
+
+  return { subject: parsed.subject, body, tone };
 }

@@ -8,7 +8,7 @@ type Props = {
   isOpen: boolean;
   onClose: () => void;
   priceId: string;
-  plan: "starter" | "pro";
+  plan: "starter" | "pro" | "firm";
   initialEmail?: string | null;
   skipCapture?: boolean;
 };

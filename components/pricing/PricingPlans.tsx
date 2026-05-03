@@ -3,21 +3,32 @@
 import { EmailCaptureModal } from "@/components/EmailCaptureModal";
 import { useState } from "react";
 
+type Plan = "starter" | "pro" | "firm";
+
 type Props = {
   starterPriceId: string;
   proPriceId: string;
+  firmPriceId: string;
   loggedInEmail?: string | null;
 };
 
-export function PricingPlans({ starterPriceId, proPriceId, loggedInEmail }: Props) {
-  const [loading, setLoading] = useState<"starter" | "pro" | null>(null);
+export function PricingPlans({ starterPriceId, proPriceId, firmPriceId, loggedInEmail }: Props) {
+  const [loading, setLoading] = useState<Plan | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [openPlan, setOpenPlan] = useState<"starter" | "pro" | null>(null);
+  const [openPlan, setOpenPlan] = useState<Plan | null>(null);
 
-  async function startCheckout(plan: "starter" | "pro") {
-    const priceId = plan === "starter" ? starterPriceId : proPriceId;
+  function priceIdFor(plan: Plan): string {
+    if (plan === "starter") return starterPriceId;
+    if (plan === "firm") return firmPriceId;
+    return proPriceId;
+  }
+
+  async function startCheckout(plan: Plan) {
+    const priceId = priceIdFor(plan);
     if (!priceId) {
-      setError("Pricing is not configured. Set STRIPE_STARTER_PRICE_ID and STRIPE_PRO_PRICE_ID.");
+      setError(
+        "Pricing is not configured. Set STRIPE_STARTER_PRICE_ID, STRIPE_PRO_PRICE_ID, and STRIPE_FIRM_PRICE_ID."
+      );
       return;
     }
     if (!loggedInEmail) {
@@ -42,52 +53,79 @@ export function PricingPlans({ starterPriceId, proPriceId, loggedInEmail }: Prop
 
   return (
     <>
-      <div className="mt-12 grid gap-8 md:grid-cols-2">
+      <div className="mt-12 grid gap-8 md:grid-cols-3">
         <article className="border border-[#E5E5E5] bg-white p-8">
-        <h2 className="font-display text-2xl text-[#0D0D0D]">Starter</h2>
-        <p className="mt-2 text-sm text-[#6B6B6B]">30-day free trial — card required</p>
-        <p className="mt-4 font-display text-5xl text-[#0D0D0D]">
-          $29<span className="ml-1 text-lg text-[#6B6B6B]">/mo</span>
-        </p>
-        <ul className="mt-8 space-y-2 text-sm text-[#6B6B6B]">
-          <li>Up to 50 invoices</li>
-          <li>AI reminders</li>
-          <li>Gmail Add-On</li>
-          <li>QuickBooks sync</li>
-        </ul>
-        <button
-          type="button"
-          disabled={loading !== null}
-          onClick={() => void startCheckout("starter")}
-          className="mt-10 w-full bg-[#1B4332] py-3 text-sm font-medium text-white disabled:opacity-60"
-        >
-          {loading === "starter" ? "Loading…" : "Start free trial"}
-        </button>
+          <h2 className="font-display text-2xl text-[#0D0D0D]">Starter</h2>
+          <p className="mt-1 text-xs uppercase tracking-[0.18em] text-[#6B6B6B]">Solo principal</p>
+          <p className="mt-4 font-display text-5xl text-[#0D0D0D]">
+            $49<span className="ml-1 text-lg text-[#6B6B6B]">/mo</span>
+          </p>
+          <p className="mt-2 text-sm text-[#6B6B6B]">30-day free trial — card required</p>
+          <ul className="mt-8 space-y-2 text-sm text-[#6B6B6B]">
+            <li>Up to 50 active invoices</li>
+            <li>AI-drafted reminders in your voice</li>
+            <li>Pay Now button on every email</li>
+            <li>QuickBooks + Gmail integration</li>
+          </ul>
+          <button
+            type="button"
+            disabled={loading !== null}
+            onClick={() => void startCheckout("starter")}
+            className="mt-10 w-full border border-[#1B4332] py-3 text-sm font-medium text-[#1B4332] disabled:opacity-60"
+          >
+            {loading === "starter" ? "Loading…" : "Start free trial"}
+          </button>
         </article>
 
         <article className="border border-[#1B4332] bg-[#F7F7F5] p-8">
-        <p className="-mx-8 -mt-8 mb-6 bg-[#1B4332] px-8 py-2 text-center text-xs font-semibold uppercase tracking-[0.2em] text-white">
-          Most popular
-        </p>
-        <h2 className="font-display text-2xl text-[#0D0D0D]">Pro</h2>
-        <p className="mt-2 text-sm text-[#6B6B6B]">30-day free trial — card required</p>
-        <p className="mt-4 font-display text-5xl text-[#0D0D0D]">
-          $49<span className="ml-1 text-lg text-[#6B6B6B]">/mo</span>
-        </p>
-        <ul className="mt-8 space-y-2 text-sm text-[#6B6B6B]">
-          <li>Unlimited invoices</li>
-          <li>Custom reminder strategies</li>
-          <li>Priority support</li>
-          <li>Advanced recovery workflows</li>
-        </ul>
-        <button
-          type="button"
-          disabled={loading !== null}
-          onClick={() => void startCheckout("pro")}
-          className="mt-10 w-full bg-[#1B4332] py-3 text-sm font-medium text-white disabled:opacity-60"
-        >
-          {loading === "pro" ? "Loading…" : "Start free trial"}
-        </button>
+          <p className="-mx-8 -mt-8 mb-6 bg-[#1B4332] px-8 py-2 text-center text-xs font-semibold uppercase tracking-[0.2em] text-white">
+            Most popular
+          </p>
+          <h2 className="font-display text-2xl text-[#0D0D0D]">Pro</h2>
+          <p className="mt-1 text-xs uppercase tracking-[0.18em] text-[#1B4332]">Most A/E firms</p>
+          <p className="mt-4 font-display text-5xl text-[#0D0D0D]">
+            $129<span className="ml-1 text-lg text-[#6B6B6B]">/mo</span>
+          </p>
+          <p className="mt-2 text-sm text-[#6B6B6B]">30-day free trial — card required</p>
+          <ul className="mt-8 space-y-2 text-sm text-[#6B6B6B]">
+            <li>Unlimited invoices</li>
+            <li>Tone control + auto-adjust by client history</li>
+            <li>Reply classification &amp; auto-scheduled follow-ups</li>
+            <li>Early-pay discount + payment plan options</li>
+            <li>Send-to-bookkeeper share link</li>
+          </ul>
+          <button
+            type="button"
+            disabled={loading !== null}
+            onClick={() => void startCheckout("pro")}
+            className="mt-10 w-full bg-[#1B4332] py-3 text-sm font-medium text-white disabled:opacity-60"
+          >
+            {loading === "pro" ? "Loading…" : "Start free trial"}
+          </button>
+        </article>
+
+        <article className="border border-[#E5E5E5] bg-white p-8">
+          <h2 className="font-display text-2xl text-[#0D0D0D]">Firm</h2>
+          <p className="mt-1 text-xs uppercase tracking-[0.18em] text-[#6B6B6B]">Bookkeepers &amp; multi-entity</p>
+          <p className="mt-4 font-display text-5xl text-[#0D0D0D]">
+            $399<span className="ml-1 text-lg text-[#6B6B6B]">/mo</span>
+          </p>
+          <p className="mt-2 text-sm text-[#6B6B6B]">30-day free trial — card required</p>
+          <ul className="mt-8 space-y-2 text-sm text-[#6B6B6B]">
+            <li>Everything in Pro</li>
+            <li>Manage 5+ client books from one view</li>
+            <li>Cross-client A/R analytics</li>
+            <li>Priority onboarding &amp; named contact</li>
+            <li>Revenue share for accounting partners</li>
+          </ul>
+          <button
+            type="button"
+            disabled={loading !== null}
+            onClick={() => void startCheckout("firm")}
+            className="mt-10 w-full border border-[#1B4332] py-3 text-sm font-medium text-[#1B4332] disabled:opacity-60"
+          >
+            {loading === "firm" ? "Loading…" : "Start free trial"}
+          </button>
         </article>
 
         {error && <p className="col-span-full text-sm text-red-600">{error}</p>}
@@ -96,7 +134,7 @@ export function PricingPlans({ starterPriceId, proPriceId, loggedInEmail }: Prop
         <EmailCaptureModal
           isOpen={openPlan !== null}
           onClose={() => setOpenPlan(null)}
-          priceId={openPlan === "starter" ? starterPriceId : proPriceId}
+          priceId={priceIdFor(openPlan)}
           plan={openPlan}
         />
       )}

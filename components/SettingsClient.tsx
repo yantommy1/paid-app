@@ -1,6 +1,8 @@
 "use client";
 
 import { BillingSection } from "@/components/settings/BillingSection";
+import { ReminderPreferencesSection } from "@/components/settings/ReminderPreferencesSection";
+import { BookkeeperShareSection } from "@/components/settings/BookkeeperShareSection";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -158,6 +160,10 @@ export function SettingsClient({
         trialEndsAt={trialEndsAt}
         subscriptionEndsAt={subscriptionEndsAt}
       />
+
+      <ReminderPreferencesSection />
+
+      <BookkeeperShareSection />
 
       <section className="space-y-4">
         <h2 className="text-xs uppercase tracking-[0.18em] text-[#6B6B6B]">Integrations</h2>

@@ -724,7 +724,11 @@ function buildContextualForMessage_(e) {
   }
 
   var emails = extractEmailsFromMessage_(messageId, access);
-  return buildCardsForEmails_(emails, 'onRefreshContextualMessage');
+  var fromEmail = extractFromEmail_(messageId, access);
+  return buildCardsForEmails_(emails, 'onRefreshContextualMessage', {
+    messageId: String(messageId),
+    fromEmail: fromEmail,
+  });
 }
 
 function buildContextualForCompose_(e) {
@@ -774,11 +778,39 @@ function onRefreshContextualCompose(e) {
     .build();
 }
 
-function buildCardsForEmails_(emails, contextualRefreshFn) {
+function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
   try {
   var builder = CardService.newCardBuilder().setHeader(
     CardService.newCardHeader().setTitle('Paid').setSubtitle('Invoices for this contact')
   );
+
+  // If this card is rendering for an OPEN message (not compose) and the message is
+  // from one of the contact emails (i.e. a reply), offer to classify it.
+  if (replyContext && replyContext.messageId && replyContext.fromEmail) {
+    var classifySec = CardService.newCardSection();
+    classifySec.addWidget(
+      CardService.newDecoratedText()
+        .setTopLabel('This looks like a reply')
+        .setText('Classify with Paid')
+        .setBottomLabel('We will read it and suggest the next step.')
+    );
+    classifySec.addWidget(
+      CardService.newButtonSet().addButton(
+        CardService.newTextButton()
+          .setText('Classify reply')
+          .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+          .setOnClickAction(
+            CardService.newAction()
+              .setFunctionName('onClassifyReply')
+              .setParameters({
+                messageId: replyContext.messageId,
+                fromEmail: replyContext.fromEmail,
+              })
+          )
+      )
+    );
+    builder.addSection(classifySec);
+  }
 
   for (var i = 0; i < emails.length; i++) {
     var email = emails[i];
@@ -1284,4 +1316,175 @@ function getFormText_(form, name) {
   if (typeof v === 'string') return v;
   if (v && typeof v.getContent === 'function') return v.getContent();
   return String(v);
+}
+
+/* ========== Reply classification (Paid v2) ========== */
+
+/** Read the From: header for a message and return the sender email (lowercased), or '' if unknown. */
+function extractFromEmail_(messageId, accessToken) {
+  var url =
+    'https://gmail.googleapis.com/gmail/v1/users/me/messages/' +
+    encodeURIComponent(messageId) +
+    '?format=metadata&metadataHeaders=From';
+  var resp = UrlFetchApp.fetch(url, {
+    headers: { Authorization: 'Bearer ' + accessToken },
+    muteHttpExceptions: true,
+    timeout: 10000,
+  });
+  if (resp.getResponseCode() !== 200) return '';
+  var json = JSON.parse(resp.getContentText());
+  var headers = (json.payload && json.payload.headers) || [];
+  for (var i = 0; i < headers.length; i++) {
+    var h = headers[i];
+    if (h.name && h.name.toLowerCase() === 'from') {
+      var emails = extractEmailsFromHeader_(h.value);
+      if (emails && emails.length) return emails[0];
+    }
+  }
+  return '';
+}
+
+/** Fetch a Gmail message and return its plain-text body (decoded). */
+function fetchMessagePlainText_(messageId, accessToken) {
+  var url =
+    'https://gmail.googleapis.com/gmail/v1/users/me/messages/' +
+    encodeURIComponent(messageId) +
+    '?format=full';
+  var resp = UrlFetchApp.fetch(url, {
+    headers: { Authorization: 'Bearer ' + accessToken },
+    muteHttpExceptions: true,
+    timeout: 10000,
+  });
+  if (resp.getResponseCode() !== 200) return '';
+  var json = JSON.parse(resp.getContentText());
+  return walkPartsForText_(json.payload) || (json.snippet ? String(json.snippet) : '');
+}
+
+function walkPartsForText_(payload) {
+  if (!payload) return '';
+  if (payload.mimeType === 'text/plain' && payload.body && payload.body.data) {
+    return decodeB64Url_(payload.body.data);
+  }
+  var parts = payload.parts || [];
+  for (var i = 0; i < parts.length; i++) {
+    var found = walkPartsForText_(parts[i]);
+    if (found) return found;
+  }
+  // Fallback: HTML, stripped of tags.
+  if (payload.mimeType === 'text/html' && payload.body && payload.body.data) {
+    var html = decodeB64Url_(payload.body.data);
+    return html.replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+  return '';
+}
+
+function decodeB64Url_(s) {
+  var b64 = String(s || '').replace(/-/g, '+').replace(/_/g, '/');
+  var padding = b64.length % 4;
+  if (padding) b64 += new Array(5 - padding).join('=');
+  try {
+    return Utilities.newBlob(Utilities.base64Decode(b64)).getDataAsString();
+  } catch (err) {
+    return '';
+  }
+}
+
+/** Action: classify the open Gmail message as a reply and show suggestion. */
+function onClassifyReply(e) {
+  var p = (e && e.parameters) || {};
+  var messageId = p.messageId;
+  var fromEmail = (p.fromEmail || '').toLowerCase();
+  var access = e && e.gmail && e.gmail.accessToken;
+  if (!messageId || !access) {
+    return CardService.newActionResponseBuilder()
+      .setNotification(CardService.newNotification().setText('Open the message first, then try again.'))
+      .build();
+  }
+
+  var bodyText = fetchMessagePlainText_(messageId, access);
+  if (!bodyText) {
+    return CardService.newActionResponseBuilder()
+      .setNotification(CardService.newNotification().setText('Could not read this message body.'))
+      .build();
+  }
+
+  try {
+    var res = paidFetch_('/api/replies/classify', {
+      method: 'post',
+      payload: JSON.stringify({
+        threadId: messageId,
+        clientEmail: fromEmail || undefined,
+        replyText: bodyText,
+      }),
+    });
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      return CardService.newActionResponseBuilder()
+        .setNotification(
+          CardService.newNotification().setText(userFacingApiError_(res.statusCode, res.body))
+        )
+        .build();
+    }
+    var data = JSON.parse(res.body);
+    return CardService.newActionResponseBuilder()
+      .setNavigation(
+        CardService.newNavigation().pushCard(buildClassificationResultCard_(data, fromEmail))
+      )
+      .build();
+  } catch (err) {
+    if (err && err.name === 'PaidAuthReconnectError') {
+      return CardService.newActionResponseBuilder()
+        .setNavigation(
+          CardService.newNavigation().updateCard(
+            buildReconnectCard_('Your connection expired. Enter your API key below to reconnect.')
+          )
+        )
+        .build();
+    }
+    return CardService.newActionResponseBuilder()
+      .setNotification(CardService.newNotification().setText('Could not classify this reply. Try again.'))
+      .build();
+  }
+}
+
+function buildClassificationResultCard_(data, fromEmail) {
+  var headline = classificationHeadline_(data.classification);
+  var card = CardService.newCardBuilder().setHeader(
+    CardService.newCardHeader().setTitle('Reply read').setSubtitle(headline)
+  );
+
+  var sec = CardService.newCardSection();
+  if (fromEmail) {
+    sec.addWidget(CardService.newDecoratedText().setTopLabel('From').setText(fromEmail));
+  }
+  if (data.suggestedAction) {
+    sec.addWidget(CardService.newDecoratedText().setTopLabel('Suggested next step').setText(data.suggestedAction));
+  }
+  if (data.classification === 'will_pay_later' && data.promisedPayDate) {
+    sec.addWidget(CardService.newDecoratedText().setTopLabel('Client promised by').setText(data.promisedPayDate));
+  }
+  if (data.scheduledFor) {
+    sec.addWidget(
+      CardService.newDecoratedText()
+        .setTopLabel('Follow-up scheduled')
+        .setText(data.scheduledFor)
+        .setBottomLabel('We will draft a fresh reminder for that day.')
+    );
+  }
+  if (data.excerpt) {
+    sec.addWidget(CardService.newTextParagraph().setText('"' + data.excerpt + '"'));
+  }
+  card.addSection(sec);
+  return card.build();
+}
+
+function classificationHeadline_(c) {
+  switch (c) {
+    case 'will_pay_later': return 'Client says: paying later';
+    case 'cannot_pay': return 'Client says: cannot pay right now';
+    case 'payment_plan_request': return 'Client wants a payment plan';
+    case 'invoice_issue': return 'Client raised an issue with the invoice';
+    case 'paid_already': return 'Client says they already paid';
+    case 'unrelated': return 'Reply is unrelated to the invoice';
+    default: return 'Reply classification';
+  }
 }
