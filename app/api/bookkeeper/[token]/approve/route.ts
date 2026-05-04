@@ -1,12 +1,17 @@
 import { resolveBookkeeperToken } from "@/lib/bookkeeper/token";
 import { serverError, unauthorized, notFound } from "@/lib/api/errors";
-import { sendGmailMessage } from "@/lib/gmail/send";
-import { ensureGmailToken } from "@/lib/oauth/tokens";
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { GmailToken } from "@/lib/types";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+/**
+ * Bookkeeper "approve" — Paid does not call gmail.send.
+ *
+ * The bookkeeper marks the draft as approved-and-ready. The owner sees the
+ * approved draft in their Gmail Add-On home card and clicks "Open in Gmail"
+ * to send. This avoids using the owner's gmail.send token (which Paid no
+ * longer holds) and keeps human approval in the loop.
+ */
 const BodySchema = z.object({
   invoiceId: z.string().uuid(),
   subject: z.string().min(1).max(998),
@@ -44,51 +49,33 @@ export async function POST(
 
   if (!inv) return notFound("Invoice not found");
 
-  const { data: owner } = await admin
-    .from("users")
-    .select("gmail_token")
-    .eq("id", ctx.ownerUserId)
-    .maybeSingle();
-
-  const gmailToken = owner?.gmail_token as unknown as GmailToken | null;
-  const fresh = await ensureGmailToken(gmailToken);
-  if (!fresh) {
-    return serverError(
-      "The owner's Gmail connection has expired. Ask them to reconnect Gmail in Paid before approving more reminders.",
-      400
-    );
-  }
-
+  // Mark the draft as approved + queued for the owner to send from Gmail.
   await admin
-    .from("users")
-    .update({ gmail_token: fresh as unknown as Record<string, unknown> })
-    .eq("id", ctx.ownerUserId);
+    .from("invoices")
+    .update({
+      reminder_pending: true,
+      reminder_draft: JSON.stringify({
+        subject: parsed.data.subject,
+        body: parsed.data.body,
+        tone: parsed.data.tone ?? null,
+        approvedByBookkeeper: ctx.bookkeeperEmail,
+        approvedAt: new Date().toISOString(),
+      }),
+    })
+    .eq("id", inv.id);
 
-  try {
-    const sent = await sendGmailMessage(fresh, inv.client_email, parsed.data.subject, parsed.data.body);
-    const now = new Date().toISOString();
-    await admin
-      .from("invoices")
-      .update({
-        status: "reminder_sent",
-        reminder_sent_at: now,
-        reminder_pending: false,
-        reminder_draft: null,
-      })
-      .eq("id", inv.id);
+  await admin.from("reminder_logs").insert({
+    user_id: ctx.ownerUserId,
+    invoice_id: inv.id,
+    channel: "bookkeeper-approved",
+    subject: parsed.data.subject,
+    sent_to: inv.client_email,
+    tone: parsed.data.tone ?? null,
+  });
 
-    await admin.from("reminder_logs").insert({
-      user_id: ctx.ownerUserId,
-      invoice_id: inv.id,
-      channel: "bookkeeper",
-      subject: parsed.data.subject,
-      sent_to: inv.client_email,
-      tone: parsed.data.tone ?? null,
-    });
-
-    return NextResponse.json({ ok: true, messageId: sent.id, sentAt: now });
-  } catch (e) {
-    const message = e instanceof Error ? e.message : "Send failed";
-    return serverError(message);
-  }
+  return NextResponse.json({
+    ok: true,
+    message:
+      "Approved. The owner will see this in their Paid Gmail Add-On and can open it in Gmail to send.",
+  });
 }

@@ -1,17 +1,17 @@
 import { serverError } from "@/lib/api/errors";
 import { requireUserFromRequest } from "@/lib/api/require-user-request";
-import { sendGmailMessage } from "@/lib/gmail/send";
-import { ensureGmailToken } from "@/lib/oauth/tokens";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { createRouteHandlerClient } from "@/lib/supabase/route-client";
-import type { GmailToken } from "@/lib/types";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+/**
+ * Bookkeeper invite — Paid does not call gmail.send. We create the invite
+ * record and return the magic link to the owner; they share it with their
+ * bookkeeper themselves (paste into Gmail, Slack, etc.).
+ */
 const InviteSchema = z.object({
   bookkeeper_email: z.string().email(),
   permissions: z.enum(["review", "send"]).optional(),
-  send_email: z.boolean().optional(),
 });
 
 function appBase(): string {
@@ -64,47 +64,6 @@ export async function POST(request: NextRequest) {
   }
 
   const link = `${appBase()}/bookkeeper/${invite.token}`;
-
-  // Optional: send the invite email from the owner's Gmail.
-  if (parsed.data.send_email !== false) {
-    try {
-      const { data: profile } = await supabase
-        .from("users")
-        .select("gmail_token, email")
-        .eq("id", ctx.user.id)
-        .maybeSingle();
-      const token = profile?.gmail_token as unknown as GmailToken | null;
-      const fresh = await ensureGmailToken(token);
-      if (fresh) {
-        const admin = createAdminClient();
-        await admin
-          .from("users")
-          .update({ gmail_token: fresh as unknown as Record<string, unknown> })
-          .eq("id", ctx.user.id);
-
-        await sendGmailMessage(
-          fresh,
-          parsed.data.bookkeeper_email,
-          "I shared my overdue invoices with you in Paid",
-          [
-            "Hi,",
-            "",
-            "I started using Paid (paid-app.com) to follow up on overdue invoices for our firm.",
-            "I shared my queue with you so you can review and approve the AI-drafted reminders before they go out.",
-            "",
-            `Open the queue here: ${link}`,
-            "",
-            "This link will expire in 60 days. Reply if anything looks off.",
-            "",
-            "Thanks",
-          ].join("\n")
-        );
-      }
-    } catch (e) {
-      console.error("[bookkeeper/invites] failed to send invite email", e);
-      // Non-fatal: the link is still returned to the owner UI.
-    }
-  }
 
   return NextResponse.json({
     invite: {

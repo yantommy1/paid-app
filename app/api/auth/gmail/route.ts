@@ -55,7 +55,8 @@ export async function GET(request: NextRequest) {
       redirect_uri: redirectUri,
       response_type: "code",
       scope: [
-        "https://www.googleapis.com/auth/gmail.send",
+        // No restricted Gmail scope. The user sends reminders themselves
+        // from Gmail compose; Paid never calls gmail.send.
         "https://www.googleapis.com/auth/userinfo.email",
       ].join(" "),
       access_type: "offline",

@@ -119,7 +119,7 @@ export function BookkeeperReviewClient({
           <p className="text-sm uppercase tracking-[0.22em] text-[#1B4332]">Bookkeeper review</p>
           <h1 className="mt-2 font-display text-4xl">{ownerEmail ? `${ownerEmail}'s overdue invoices` : "Overdue invoices"}</h1>
           <p className="mt-3 text-sm text-[#6B6B6B]">
-            Signed in as {bookkeeperEmail}. {permissions === "send" ? "You can review drafts and send them." : "You can review drafts (read only)."}
+            Signed in as {bookkeeperEmail}. {permissions === "send" ? "You can review drafts and approve them — the owner gets a one-click send in their Gmail." : "You can review drafts (read only)."}
           </p>
           <div className="mt-6 inline-flex items-baseline gap-2 border border-[#E5E5E5] bg-white px-4 py-3">
             <span className="text-xs uppercase tracking-[0.18em] text-[#6B6B6B]">Total outstanding</span>
@@ -165,7 +165,7 @@ export function BookkeeperReviewClient({
                   {isOpen && (
                     <div className="border-t border-[#E5E5E5] bg-[#FAFAFA] px-5 py-5">
                       {wasSent ? (
-                        <p className="text-sm text-[#1B4332]">Reminder sent to {inv.clientEmail}.</p>
+                        <p className="text-sm text-[#1B4332]">Approved. The owner will see this in their Paid Gmail Add-On and click Send when ready.</p>
                       ) : draft ? (
                         <>
                           <p className="text-xs uppercase tracking-[0.18em] text-[#6B6B6B]">Subject</p>
@@ -183,10 +183,10 @@ export function BookkeeperReviewClient({
                                 onClick={() => void approveAndSend(inv.id)}
                                 className="bg-[#1B4332] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
                               >
-                                {isBusy === "sending" ? "Sending…" : `Approve and send to ${inv.clientEmail}`}
+                                {isBusy === "sending" ? "Approving…" : `Approve for owner to send`}
                               </button>
                             ) : (
-                              <span className="text-xs text-[#6B6B6B]">Read-only access — only the owner can send.</span>
+                              <span className="text-xs text-[#6B6B6B]">Read-only access — only the owner can approve drafts.</span>
                             )}
                             <button
                               type="button"

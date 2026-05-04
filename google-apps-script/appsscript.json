@@ -14,7 +14,7 @@
   ],
   "gmail": {
     "name": "Paid",
-    "logoUrl": "https://www.gstatic.com/images/branding/product/1x/contacts_48dp.png",
+    "logoUrl": "https://paid-app.com/marketplace/icon-128.png",
     "contextualTriggers": [
       {
         "unconditional": {},

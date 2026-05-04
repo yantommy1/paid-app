@@ -188,23 +188,34 @@ export function OverdueInvoicesPanel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ invoiceId, subject, body, channel: "web" }),
       });
-      const j = (await res.json()) as { sentAt?: string; error?: string };
-      if (!res.ok) {
+      const j = (await res.json()) as {
+        sentAt?: string;
+        composeUrl?: string;
+        bodyTruncated?: boolean;
+        error?: string;
+      };
+      if (!res.ok || !j.composeUrl) {
         setDrafts((prev) => ({
           ...prev,
           [invoiceId]: {
             status: "error",
-            message: typeof j.error === "string" ? j.error : "Send failed.",
+            message: typeof j.error === "string" ? j.error : "Could not prepare draft.",
           },
         }));
         return;
       }
 
+      // Open the prefilled Gmail compose window in a new tab.
+      // The merchant clicks Send themselves in Gmail.
+      window.open(j.composeUrl, "_blank", "noopener,noreferrer");
+
       setDrafts((prev) => ({
         ...prev,
         [invoiceId]: {
           status: "sent",
-          message: `Reminder sent${j.sentAt ? ` on ${formatSentAt(j.sentAt)}` : ""}.`,
+          message: j.bodyTruncated
+            ? "Opened in Gmail. Heads up: the body was long; check the full draft in your Drafts folder."
+            : "Opened in Gmail. Click Send there to deliver the reminder.",
         },
       }));
       await loadInvoices();
@@ -213,7 +224,7 @@ export function OverdueInvoicesPanel() {
         ...prev,
         [invoiceId]: {
           status: "error",
-          message: e instanceof Error ? e.message : "Network error while sending.",
+          message: e instanceof Error ? e.message : "Network error while preparing draft.",
         },
       }));
     } finally {
@@ -392,7 +403,7 @@ export function OverdueInvoicesPanel() {
                             disabled={sendingId === inv.id}
                             className="rounded-md bg-[#1B4332] px-4 py-2 text-sm font-semibold text-white hover:bg-[#245941] disabled:opacity-60"
                           >
-                            {sendingId === inv.id ? "Sending..." : "Send Now"}
+                            {sendingId === inv.id ? "Preparing…" : "Open in Gmail to send"}
                           </button>
                         </div>
                       </div>

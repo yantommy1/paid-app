@@ -188,9 +188,31 @@ function onSendReminder(e) {
       }),
     });
     if (res.statusCode >= 200 && res.statusCode < 300) {
+      var data = {};
+      try { data = JSON.parse(res.body) || {}; } catch (parseErr) { data = {}; }
       clearReminderDraft_(id);
+      var composeUrl = data.composeUrl;
+      if (composeUrl) {
+        // Paid never calls gmail.send. Open Gmail compose prefilled and let
+        // the merchant click Send themselves.
+        return CardService.newActionResponseBuilder()
+          .setOpenLink(
+            CardService.newOpenLink()
+              .setUrl(composeUrl)
+              .setOpenAs(CardService.OpenAs.OVERLAY)
+          )
+          .setNotification(
+            CardService.newNotification().setText(
+              data.bodyTruncated
+                ? 'Opened in Gmail. Body was long — verify in Drafts.'
+                : 'Opened in Gmail. Click Send there.'
+            )
+          )
+          .setNavigation(CardService.newNavigation().popCard())
+          .build();
+      }
       return CardService.newActionResponseBuilder()
-        .setNotification(CardService.newNotification().setText('Reminder sent.'))
+        .setNotification(CardService.newNotification().setText('Approved. Open Gmail to send.'))
         .setNavigation(CardService.newNavigation().popCard())
         .build();
     }
@@ -323,7 +345,7 @@ function onOpenPaidCompose(e) {
     return CardService.newActionResponseBuilder()
       .setNotification(
         CardService.newNotification().setText(
-          'Edit in Gmail is only available on desktop. Use Send Now instead.'
+          'Edit in Gmail is only available on desktop. Use Open in Gmail to send instead.'
         )
       )
       .build();
@@ -337,7 +359,7 @@ function onEditInGmailUnavailable(e) {
   return CardService.newActionResponseBuilder()
     .setNotification(
       CardService.newNotification().setText(
-        'Edit in Gmail is only available on desktop. Use Send Now instead.'
+        'Edit in Gmail is only available on desktop. Use Open in Gmail to send instead.'
       )
     )
     .build();
@@ -372,7 +394,7 @@ function buildDraftPreviewCard_(invoiceId) {
 
   var btnRow = CardService.newButtonSet().addButton(
     CardService.newTextButton()
-      .setText('Send Now')
+      .setText('Open in Gmail to send')
       .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
       .setOnClickAction(
         CardService.newAction()

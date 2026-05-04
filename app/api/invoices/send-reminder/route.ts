@@ -2,14 +2,20 @@ import { buildReminderForInvoice } from "@/lib/invoices/build-reminder";
 import { getUserDisplayName } from "@/lib/auth/display-name";
 import { notFound, serverError } from "@/lib/api/errors";
 import { requireUserFromRequest } from "@/lib/api/require-user-request";
-import { sendGmailMessage } from "@/lib/gmail/send";
-import { ensureGmailToken } from "@/lib/oauth/tokens";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { buildGmailComposeUrl } from "@/lib/gmail/send";
 import { createRouteHandlerClient } from "@/lib/supabase/route-client";
-import type { GmailToken } from "@/lib/types";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+/**
+ * Approve a reminder and prepare it for the merchant to send themselves.
+ *
+ * Paid never calls gmail.send. This endpoint:
+ *   1) Builds (or accepts) the subject + body.
+ *   2) Marks the invoice as reminder_sent (optimistic — based on user click).
+ *   3) Records a reminder_logs row with channel='gmail-compose'.
+ *   4) Returns a Gmail compose URL the client can open so the user clicks Send in Gmail.
+ */
 const BodySchema = z.object({
   invoiceId: z.string().uuid(),
   subject: z.string().optional(),
@@ -48,24 +54,6 @@ export async function POST(request: NextRequest) {
     return notFound("Invoice not found");
   }
 
-  const { data: userRow } = await supabase
-    .from("users")
-    .select("gmail_token")
-    .eq("id", ctx.user.id)
-    .single();
-
-  const gmailToken = userRow?.gmail_token as unknown as GmailToken | null;
-  const fresh = await ensureGmailToken(gmailToken);
-  if (!fresh) {
-    return serverError("Gmail not connected or token expired — reconnect.", 400);
-  }
-
-  const admin = createAdminClient();
-  await admin
-    .from("users")
-    .update({ gmail_token: fresh as unknown as Record<string, unknown> })
-    .eq("id", ctx.user.id);
-
   const senderName = getUserDisplayName(ctx.user);
   let subject = parsed.data.subject;
   let body = parsed.data.body;
@@ -84,39 +72,40 @@ export async function POST(request: NextRequest) {
     discountPct = discountPct ?? built.discountPct;
   }
 
-  try {
-    const sent = await sendGmailMessage(fresh, inv.client_email, subject!, body!);
-    const now = new Date().toISOString();
-    await supabase
-      .from("invoices")
-      .update({
-        status: "reminder_sent",
-        reminder_sent_at: now,
-        reminder_pending: false,
-        reminder_draft: null,
-      })
-      .eq("id", inv.id);
+  const compose = buildGmailComposeUrl({
+    to: inv.client_email,
+    subject: subject!,
+    bodyText: body!,
+  });
 
-    await supabase.from("reminder_logs").insert({
-      user_id: ctx.user.id,
-      invoice_id: inv.id,
-      channel: parsed.data.channel ?? "web",
-      subject,
-      sent_to: inv.client_email,
-      tone,
-      pay_link_included: payNowIncluded,
-      discount_pct: discountPct,
-    });
+  const now = new Date().toISOString();
+  await supabase
+    .from("invoices")
+    .update({
+      status: "reminder_sent",
+      reminder_sent_at: now,
+      reminder_pending: false,
+      reminder_draft: null,
+    })
+    .eq("id", inv.id);
 
-    return NextResponse.json({
-      ok: true,
-      messageId: sent.id,
-      sentAt: now,
-      tone,
-      payNowIncluded,
-    });
-  } catch (e) {
-    const message = e instanceof Error ? e.message : "Send failed";
-    return serverError(message);
-  }
+  await supabase.from("reminder_logs").insert({
+    user_id: ctx.user.id,
+    invoice_id: inv.id,
+    channel: "gmail-compose",
+    subject,
+    sent_to: inv.client_email,
+    tone,
+    pay_link_included: payNowIncluded,
+    discount_pct: discountPct,
+  });
+
+  return NextResponse.json({
+    ok: true,
+    composeUrl: compose.url,
+    bodyTruncated: compose.bodyTruncated,
+    sentAt: now,
+    tone,
+    payNowIncluded,
+  });
 }
