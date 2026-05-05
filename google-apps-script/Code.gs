@@ -101,10 +101,11 @@ function onDraftReminder(e) {
     var data = JSON.parse(res.body);
     var subject = data.subject || '';
     var body = data.body || '';
-    cacheReminderDraft_(id, clientEmail, subject, body);
+    var tone = data.tone || 'professional';
+    cacheReminderDraft_(id, clientEmail, subject, body, tone);
     return CardService.newActionResponseBuilder()
       .setNavigation(CardService.newNavigation().pushCard(buildDraftPreviewCard_(String(id))))
-      .setNotification(CardService.newNotification().setText('Reminder drafted. Review below.'))
+      .setNotification(CardService.newNotification().setText('Drafted (' + tone + ' tone). Adjust below.'))
       .build();
   } catch (err) {
     if (err && err.name === 'PaidAuthReconnectError') {
@@ -154,6 +155,80 @@ function onShowQueuedDraft(e) {
   return CardService.newActionResponseBuilder()
     .setNavigation(CardService.newNavigation().pushCard(buildDraftPreviewCard_(String(id))))
     .build();
+}
+
+/**
+ * Re-draft with a different tone. Calls /api/invoices/draft-reminder with a
+ * tone override, replaces the cached draft, and re-renders the preview card
+ * with the new tone selection highlighted.
+ */
+function onChangeTone(e) {
+  var p = (e && e.parameters) || {};
+  var id = p.invoiceId;
+  var tone = p.tone;
+  if (!id || !tone) {
+    return CardService.newActionResponseBuilder()
+      .setNotification(CardService.newNotification().setText('Missing tone'))
+      .build();
+  }
+
+  var existing = loadReminderDraft_(id) || {};
+
+  try {
+    var res = paidFetch_('/api/invoices/draft-reminder', {
+      method: 'post',
+      payload: JSON.stringify({
+        invoiceId: id,
+        senderName: getUserDisplayName_(),
+        tone: tone,
+      }),
+    });
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      return CardService.newActionResponseBuilder()
+        .setNotification(
+          CardService.newNotification().setText(userFacingApiError_(res.statusCode, res.body))
+        )
+        .build();
+    }
+    var data = JSON.parse(res.body);
+    cacheReminderDraft_(
+      id,
+      existing.clientEmail || '',
+      data.subject || '',
+      data.body || '',
+      data.tone || tone
+    );
+    return CardService.newActionResponseBuilder()
+      .setNavigation(
+        CardService.newNavigation().updateCard(buildDraftPreviewCard_(String(id)))
+      )
+      .setNotification(
+        CardService.newNotification().setText('Re-drafted with ' + (data.tone || tone) + ' tone.')
+      )
+      .build();
+  } catch (err) {
+    if (err && err.name === 'PaidAuthReconnectError') {
+      return CardService.newActionResponseBuilder()
+        .setNavigation(
+          CardService.newNavigation().updateCard(
+            buildReconnectCard_(
+              'Your connection expired. Enter your API key below to reconnect.'
+            )
+          )
+        )
+        .build();
+    }
+    return CardService.newActionResponseBuilder()
+      .setNotification(
+        CardService.newNotification().setText('Could not re-draft. Try again.')
+      )
+      .build();
+  }
+}
+
+function capitalize_(s) {
+  if (!s || typeof s !== 'string') return '';
+  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
 }
 
 /**
@@ -291,13 +366,14 @@ function reminderDraftKey_(invoiceId) {
   return 'paid_reminder_draft_' + String(invoiceId);
 }
 
-function cacheReminderDraft_(invoiceId, clientEmail, subject, body) {
+function cacheReminderDraft_(invoiceId, clientEmail, subject, body, tone) {
   PropertiesService.getUserProperties().setProperty(
     reminderDraftKey_(invoiceId),
     JSON.stringify({
       clientEmail: clientEmail || '',
       subject: subject || '',
       body: body || '',
+      tone: tone || 'professional',
     })
   );
 }
@@ -375,6 +451,7 @@ function buildDraftPreviewCard_(invoiceId) {
   var draft = loadReminderDraft_(invoiceId);
   var subj = draft && draft.subject ? draft.subject : '';
   var body = draft && draft.body ? draft.body : '';
+  var tone = (draft && draft.tone) || 'professional';
 
   var card = CardService.newCardBuilder().setHeader(
     CardService.newCardHeader().setTitle('Draft').setSubtitle('Your AI-drafted reminder')
@@ -391,6 +468,33 @@ function buildDraftPreviewCard_(invoiceId) {
         CardService.newTextParagraph().setText(truncateDraftBodyMobile_(body))
       )
   );
+
+  // Tone control — re-drafts the body when tapped.
+  var toneSec = CardService.newCardSection().setHeader('Tone');
+  toneSec.addWidget(
+    CardService.newTextParagraph().setText(
+      'Slide from friendly to firm. We pre-pick based on the client\'s payment history and the invoice size — tap to override.'
+    )
+  );
+  var toneRow = CardService.newButtonSet();
+  ['friendly', 'professional', 'firm'].forEach(function (t) {
+    var label = capitalize_(t);
+    var btn = CardService.newTextButton()
+      .setText(t === tone ? '● ' + label : label)
+      .setTextButtonStyle(
+        t === tone
+          ? CardService.TextButtonStyle.FILLED
+          : CardService.TextButtonStyle.OUTLINED
+      )
+      .setOnClickAction(
+        CardService.newAction()
+          .setFunctionName('onChangeTone')
+          .setParameters({ invoiceId: String(invoiceId), tone: t })
+      );
+    toneRow.addButton(btn);
+  });
+  toneSec.addWidget(toneRow);
+  card.addSection(toneSec);
 
   var btnRow = CardService.newButtonSet().addButton(
     CardService.newTextButton()
@@ -966,7 +1070,7 @@ function buildReviewQueueCard_(queue) {
   }
 
   queue.forEach(function (item, i) {
-    cacheReminderDraft_(item.invoiceId, item.clientEmail, item.subject, item.body);
+    cacheReminderDraft_(item.invoiceId, item.clientEmail, item.subject, item.body, item.tone);
     var sec = CardService.newCardSection();
     if (i > 0) {
       sec.addWidget(CardService.newDivider());
