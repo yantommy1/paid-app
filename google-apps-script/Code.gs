@@ -102,7 +102,8 @@ function onDraftReminder(e) {
     var subject = data.subject || '';
     var body = data.body || '';
     var tone = data.tone || 'professional';
-    cacheReminderDraft_(id, clientEmail, subject, body, tone);
+    var payNowIncluded = !!data.payNowIncluded;
+    cacheReminderDraft_(id, clientEmail, subject, body, tone, payNowIncluded);
     return CardService.newActionResponseBuilder()
       .setNavigation(CardService.newNavigation().pushCard(buildDraftPreviewCard_(String(id))))
       .setNotification(CardService.newNotification().setText('Drafted (' + tone + ' tone). Adjust below.'))
@@ -196,7 +197,8 @@ function onChangeTone(e) {
       existing.clientEmail || '',
       data.subject || '',
       data.body || '',
-      data.tone || tone
+      data.tone || tone,
+      !!data.payNowIncluded
     );
     return CardService.newActionResponseBuilder()
       .setNavigation(
@@ -366,7 +368,7 @@ function reminderDraftKey_(invoiceId) {
   return 'paid_reminder_draft_' + String(invoiceId);
 }
 
-function cacheReminderDraft_(invoiceId, clientEmail, subject, body, tone) {
+function cacheReminderDraft_(invoiceId, clientEmail, subject, body, tone, payNowIncluded) {
   PropertiesService.getUserProperties().setProperty(
     reminderDraftKey_(invoiceId),
     JSON.stringify({
@@ -374,6 +376,7 @@ function cacheReminderDraft_(invoiceId, clientEmail, subject, body, tone) {
       subject: subject || '',
       body: body || '',
       tone: tone || 'professional',
+      payNowIncluded: !!payNowIncluded,
     })
   );
 }
@@ -452,6 +455,7 @@ function buildDraftPreviewCard_(invoiceId) {
   var subj = draft && draft.subject ? draft.subject : '';
   var body = draft && draft.body ? draft.body : '';
   var tone = (draft && draft.tone) || 'professional';
+  var payNowIncluded = !!(draft && draft.payNowIncluded);
 
   var card = CardService.newCardBuilder().setHeader(
     CardService.newCardHeader().setTitle('Draft').setSubtitle('Your AI-drafted reminder')
@@ -466,6 +470,17 @@ function buildDraftPreviewCard_(invoiceId) {
       )
       .addWidget(
         CardService.newTextParagraph().setText(truncateDraftBodyMobile_(body))
+      )
+      .addWidget(
+        CardService.newDecoratedText()
+          .setTopLabel(payNowIncluded ? 'Pay Now button included' : 'No Pay Now button')
+          .setText(
+            payNowIncluded
+              ? 'Client gets a Stripe Checkout link in this email.'
+              : 'Connect Stripe in Settings to add a Pay Now button.'
+          )
+          .setBottomLabel('Configure default discount and payment plan in Settings → Reminder preferences.')
+          .setWrapText(true)
       )
   );
 
@@ -692,6 +707,9 @@ function buildHomePage_(e) {
     cohortSec.addWidget(buildCohortRow_(DOT_OK, 'Current', cohorts.current));
     card.addSection(cohortSec);
 
+    var activitySec = buildActivitySection_();
+    if (activitySec) card.addSection(activitySec);
+
     var overdue = invoices.filter(function (r) {
       return (r.days_overdue || 0) >= 30;
     });
@@ -913,28 +931,76 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
   // If this card is rendering for an OPEN message (not compose) and the message is
   // from one of the contact emails (i.e. a reply), offer to classify it.
   if (replyContext && replyContext.messageId && replyContext.fromEmail) {
+    var prior = fetchPriorClassificationsForThread_(replyContext.messageId);
     var classifySec = CardService.newCardSection();
-    classifySec.addWidget(
-      CardService.newDecoratedText()
-        .setTopLabel('This looks like a reply')
-        .setText('Classify with Paid')
-        .setBottomLabel('We will read it and suggest the next step.')
-    );
-    classifySec.addWidget(
-      CardService.newButtonSet().addButton(
-        CardService.newTextButton()
-          .setText('Classify reply')
-          .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
-          .setOnClickAction(
-            CardService.newAction()
-              .setFunctionName('onClassifyReply')
-              .setParameters({
-                messageId: replyContext.messageId,
-                fromEmail: replyContext.fromEmail,
-              })
+
+    if (prior && prior.length > 0) {
+      var last = prior[0];
+      classifySec.addWidget(
+        CardService.newDecoratedText()
+          .setTopLabel('Last classified ' + (last.createdAt || '').slice(0, 10))
+          .setText(classificationHeadline_(last.classification))
+          .setBottomLabel(
+            (last.promisedPayDate ? 'Promised by ' + last.promisedPayDate + ' · ' : '') +
+              (last.suggestedAction || '')
           )
-      )
-    );
+          .setWrapText(true)
+      );
+      if (
+        last.invoiceId &&
+        (last.classification === 'cannot_pay' || last.classification === 'payment_plan_request')
+      ) {
+        classifySec.addWidget(
+          CardService.newButtonSet().addButton(
+            CardService.newTextButton()
+              .setText('Suggest payment plan')
+              .setTextButtonStyle(CardService.TextButtonStyle.OUTLINED)
+              .setOnClickAction(
+                CardService.newAction()
+                  .setFunctionName('onSuggestPaymentPlan')
+                  .setParameters({ invoiceId: String(last.invoiceId) })
+              )
+          )
+        );
+      }
+      classifySec.addWidget(
+        CardService.newButtonSet().addButton(
+          CardService.newTextButton()
+            .setText('Re-classify')
+            .setTextButtonStyle(CardService.TextButtonStyle.OUTLINED)
+            .setOnClickAction(
+              CardService.newAction()
+                .setFunctionName('onClassifyReply')
+                .setParameters({
+                  messageId: replyContext.messageId,
+                  fromEmail: replyContext.fromEmail,
+                })
+            )
+        )
+      );
+    } else {
+      classifySec.addWidget(
+        CardService.newDecoratedText()
+          .setTopLabel('This looks like a reply')
+          .setText('Classify with Paid')
+          .setBottomLabel('We will read it and suggest the next step.')
+      );
+      classifySec.addWidget(
+        CardService.newButtonSet().addButton(
+          CardService.newTextButton()
+            .setText('Classify reply')
+            .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+            .setOnClickAction(
+              CardService.newAction()
+                .setFunctionName('onClassifyReply')
+                .setParameters({
+                  messageId: replyContext.messageId,
+                  fromEmail: replyContext.fromEmail,
+                })
+            )
+        )
+      );
+    }
     builder.addSection(classifySec);
   }
 
@@ -1070,7 +1136,14 @@ function buildReviewQueueCard_(queue) {
   }
 
   queue.forEach(function (item, i) {
-    cacheReminderDraft_(item.invoiceId, item.clientEmail, item.subject, item.body, item.tone);
+    cacheReminderDraft_(
+      item.invoiceId,
+      item.clientEmail,
+      item.subject,
+      item.body,
+      item.tone,
+      !!item.payNowIncluded
+    );
     var sec = CardService.newCardSection();
     if (i > 0) {
       sec.addWidget(CardService.newDivider());
@@ -1599,6 +1672,26 @@ function buildClassificationResultCard_(data, fromEmail) {
   if (data.excerpt) {
     sec.addWidget(CardService.newTextParagraph().setText('"' + data.excerpt + '"'));
   }
+
+  // Action: suggest a payment plan when the client says they cannot pay or asks for one.
+  if (
+    data.invoiceId &&
+    (data.classification === 'cannot_pay' || data.classification === 'payment_plan_request')
+  ) {
+    sec.addWidget(
+      CardService.newButtonSet().addButton(
+        CardService.newTextButton()
+          .setText('Suggest payment plan')
+          .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+          .setOnClickAction(
+            CardService.newAction()
+              .setFunctionName('onSuggestPaymentPlan')
+              .setParameters({ invoiceId: String(data.invoiceId) })
+          )
+      )
+    );
+  }
+
   card.addSection(sec);
   return card.build();
 }
@@ -1612,5 +1705,157 @@ function classificationHeadline_(c) {
     case 'paid_already': return 'Client says they already paid';
     case 'unrelated': return 'Reply is unrelated to the invoice';
     default: return 'Reply classification';
+  }
+}
+
+function classificationShortLabel_(c) {
+  switch (c) {
+    case 'will_pay_later': return 'Paying later';
+    case 'cannot_pay': return 'Cannot pay';
+    case 'payment_plan_request': return 'Wants plan';
+    case 'invoice_issue': return 'Disputed';
+    case 'paid_already': return 'Already paid?';
+    case 'unrelated': return 'Unrelated';
+    default: return 'Reply';
+  }
+}
+
+/**
+ * "Activity" section on the home card — recent client replies the system has classified,
+ * with quick actions. Returns null if there is nothing to show or the API errors.
+ */
+function buildActivitySection_() {
+  try {
+    var res = paidFetch_('/api/replies/recent', { method: 'get' });
+    if (res.statusCode !== 200) return null;
+    var data = JSON.parse(res.body);
+    var items = (data && data.items) || [];
+    if (!items.length) return null;
+
+    var sec = CardService.newCardSection().setHeader('Activity');
+    items.slice(0, 6).forEach(function (item, idx) {
+      if (idx > 0) sec.addWidget(CardService.newDivider());
+      var label = classificationShortLabel_(item.classification);
+      var topLabel = (item.invoice && item.invoice.client_name) || item.clientEmail || 'Client reply';
+      var bottomBits = [];
+      if (item.classification === 'will_pay_later' && item.promisedPayDate) {
+        bottomBits.push('Promised by ' + item.promisedPayDate);
+      }
+      if (item.nextFollowup) {
+        bottomBits.push('Follow-up ' + item.nextFollowup);
+      }
+      if (item.invoice && item.invoice.days_overdue != null) {
+        bottomBits.push(item.invoice.days_overdue + 'd overdue');
+      }
+      sec.addWidget(
+        CardService.newDecoratedText()
+          .setTopLabel(topLabel)
+          .setText(label + (item.invoice && item.invoice.amount ? ' · ' + fmtMoney_(item.invoice.amount) : ''))
+          .setBottomLabel(bottomBits.join(' · ') || (item.suggestedAction || ''))
+          .setWrapText(true)
+      );
+
+      if (
+        item.invoiceId &&
+        (item.classification === 'cannot_pay' || item.classification === 'payment_plan_request')
+      ) {
+        sec.addWidget(
+          CardService.newButtonSet().addButton(
+            CardService.newTextButton()
+              .setText('Suggest payment plan')
+              .setTextButtonStyle(CardService.TextButtonStyle.OUTLINED)
+              .setOnClickAction(
+                CardService.newAction()
+                  .setFunctionName('onSuggestPaymentPlan')
+                  .setParameters({ invoiceId: String(item.invoiceId) })
+              )
+          )
+        );
+      }
+    });
+    return sec;
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * Action: build a payment plan template and open it in a Gmail compose window.
+ * Used both from the Activity feed and from the classification result card.
+ */
+function onSuggestPaymentPlan(e) {
+  var p = (e && e.parameters) || {};
+  var id = p.invoiceId;
+  if (!id) {
+    return CardService.newActionResponseBuilder()
+      .setNotification(CardService.newNotification().setText('Missing invoice id'))
+      .build();
+  }
+
+  try {
+    var res = paidFetch_('/api/invoices/payment-plan-template', {
+      method: 'post',
+      payload: JSON.stringify({ invoiceId: id }),
+    });
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      return CardService.newActionResponseBuilder()
+        .setNotification(
+          CardService.newNotification().setText(userFacingApiError_(res.statusCode, res.body))
+        )
+        .build();
+    }
+    var data = JSON.parse(res.body);
+    var url =
+      'https://mail.google.com/mail/?view=cm&fs=1' +
+      '&to=' + encodeURIComponent(data.to || '') +
+      '&su=' + encodeURIComponent(data.subject || '') +
+      '&body=' + encodeURIComponent(data.body || '');
+    return CardService.newActionResponseBuilder()
+      .setOpenLink(
+        CardService.newOpenLink()
+          .setUrl(url)
+          .setOpenAs(CardService.OpenAs.OVERLAY)
+      )
+      .setNotification(
+        CardService.newNotification().setText(
+          'Payment plan template opened in Gmail (' + (data.installments || 3) + ' installments).'
+        )
+      )
+      .build();
+  } catch (err) {
+    if (err && err.name === 'PaidAuthReconnectError') {
+      return CardService.newActionResponseBuilder()
+        .setNavigation(
+          CardService.newNavigation().updateCard(
+            buildReconnectCard_('Your connection expired. Enter your API key below to reconnect.')
+          )
+        )
+        .build();
+    }
+    return CardService.newActionResponseBuilder()
+      .setNotification(
+        CardService.newNotification().setText('Could not build payment plan template.')
+      )
+      .build();
+  }
+}
+
+/**
+ * Look up prior classifications for an open Gmail thread so the contextual card
+ * can surface "we already classified this — here is what they said and what we
+ * scheduled."
+ */
+function fetchPriorClassificationsForThread_(threadId) {
+  if (!threadId) return [];
+  try {
+    var res = paidFetch_(
+      '/api/replies/by-thread?threadId=' + encodeURIComponent(threadId),
+      { method: 'get' }
+    );
+    if (res.statusCode !== 200) return [];
+    var data = JSON.parse(res.body);
+    return (data && data.items) || [];
+  } catch (err) {
+    return [];
   }
 }
