@@ -55,6 +55,19 @@ export function Nav({ userEmail = null, userDisplayName = null, authenticated }:
             </Link>
           </div>
         ) : (
+          <div className="flex items-center gap-6 text-sm">
+            <Link
+              href="/dashboard"
+              className="hidden text-[#0D0D0D] hover:text-[#1B4332] md:inline"
+            >
+              Dashboard
+            </Link>
+            <Link
+              href="/settings"
+              className="hidden text-[#0D0D0D] hover:text-[#1B4332] md:inline"
+            >
+              Settings
+            </Link>
           <div className="relative">
             <button
               type="button"
@@ -82,6 +95,14 @@ export function Nav({ userEmail = null, userDisplayName = null, authenticated }:
                 >
                   Dashboard
                 </Link>
+                <Link
+                  href="/settings"
+                  className="block px-4 py-2 text-sm text-[#0D0D0D] hover:bg-[#F7F7F5]"
+                  onClick={() => setOpen(false)}
+                >
+                  Settings
+                </Link>
+                <div className="my-1 border-t border-[#E5E5E5]" />
                 <button
                   type="button"
                   role="menuitem"
@@ -93,6 +114,7 @@ export function Nav({ userEmail = null, userDisplayName = null, authenticated }:
                 </button>
               </div>
             )}
+          </div>
           </div>
         )}
       </div>

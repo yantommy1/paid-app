@@ -14,6 +14,8 @@ function computeOnboardingStep(quickbooksConnected: boolean, gmailConnected: boo
   return step;
 }
 
+type Tone = "friendly" | "professional" | "firm";
+
 function ConnectedPill() {
   return (
     <div className="mt-5 inline-flex items-center gap-2 rounded bg-[#1B4332] px-4 py-2 text-sm font-medium text-white">
@@ -36,6 +38,15 @@ export function OnboardingClient({ initialStep, displayName, quickbooksConnected
   const [completeError, setCompleteError] = useState<string | null>(null);
   const [qbConn, setQbConn] = useState(quickbooksConnected);
   const [gmConn, setGmConn] = useState(gmailConnected);
+
+  // Step 3: reminder preferences (optional)
+  const [tone, setTone] = useState<Tone>("professional");
+  const [payNowEnabled, setPayNowEnabled] = useState<boolean>(true);
+  const [discountPct, setDiscountPct] = useState<number>(0);
+  const [bookkeeperEmail, setBookkeeperEmail] = useState<string>("");
+  const [savingPrefs, setSavingPrefs] = useState(false);
+  const [prefsSaved, setPrefsSaved] = useState(false);
+  const [prefsMessage, setPrefsMessage] = useState<string | null>(null);
 
   useEffect(() => {
     setQbConn(quickbooksConnected);
@@ -64,6 +75,51 @@ export function OnboardingClient({ initialStep, displayName, quickbooksConnected
     const supabase = createClient();
     await supabase.auth.signOut();
     router.push("/");
+  }
+
+  async function savePreferences() {
+    setSavingPrefs(true);
+    setPrefsMessage(null);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tone_default: tone,
+          tone_auto_adjust: true,
+          payment_link_enabled: payNowEnabled,
+          early_pay_discount_pct: discountPct,
+        }),
+      });
+      if (!res.ok) {
+        const j = (await res.json()) as { error?: string };
+        setPrefsMessage(j.error ?? "Could not save preferences.");
+        return;
+      }
+
+      // Optional bookkeeper invite
+      if (bookkeeperEmail.trim()) {
+        try {
+          await fetch("/api/bookkeeper/invites", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              bookkeeper_email: bookkeeperEmail.trim(),
+              permissions: "send",
+            }),
+          });
+        } catch {
+          // Non-fatal — owner can re-invite from Settings later.
+        }
+      }
+
+      setPrefsSaved(true);
+      setPrefsMessage("Saved. You can change any of this later in Settings.");
+    } catch {
+      setPrefsMessage("Could not save preferences.");
+    } finally {
+      setSavingPrefs(false);
+    }
   }
 
   async function completeOnboarding() {
@@ -145,7 +201,109 @@ export function OnboardingClient({ initialStep, displayName, quickbooksConnected
         </li>
 
         <li className={`${card} border-l-4 ${step >= 3 ? "border-l-[#1B4332]" : "border-l-transparent"}`}>
-          <span className="font-mono text-xs uppercase tracking-[0.16em] text-[#1B4332]">Step 3</span>
+          <span className="font-mono text-xs uppercase tracking-[0.16em] text-[#1B4332]">Step 3 · optional</span>
+          <h2 className="mt-2 font-display text-2xl">Tune your reminders</h2>
+          <p className="mt-2 text-sm leading-relaxed text-[#6B6B6B]">
+            Set the defaults Paid will use when drafting every reminder. You can override
+            any of this per invoice in the Gmail Add-On, and change it later in Settings.
+          </p>
+
+          <div className="mt-6 space-y-6">
+            <div>
+              <label className="text-xs uppercase tracking-[0.18em] text-[#6B6B6B]">Default tone</label>
+              <div className="mt-2 inline-flex border border-[#E5E5E5]">
+                {(["friendly", "professional", "firm"] as const).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setTone(t)}
+                    className={`px-4 py-2 text-sm capitalize ${
+                      tone === t
+                        ? "bg-[#1B4332] text-white"
+                        : "bg-white text-[#0D0D0D] hover:bg-[#F7F7F5]"
+                    }`}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-2 text-xs text-[#6B6B6B]">
+                Auto-adjusts firmer for $10k+ invoices and clients with prior late payments.
+                Slide tone per-reminder in the Gmail Add-On.
+              </p>
+            </div>
+
+            <div>
+              <label className="flex items-center gap-2 text-sm text-[#0D0D0D]">
+                <input
+                  type="checkbox"
+                  checked={payNowEnabled}
+                  onChange={(e) => setPayNowEnabled(e.target.checked)}
+                />
+                Add a Pay Now button to every reminder
+              </label>
+              <p className="mt-1 ml-6 text-xs text-[#6B6B6B]">
+                Requires a Stripe Connect account (set up later in Settings → Billing).
+                Off = email goes out without a payment link.
+              </p>
+            </div>
+
+            <div>
+              <label className="text-xs uppercase tracking-[0.18em] text-[#6B6B6B]">Early-pay discount</label>
+              <div className="mt-2 flex items-center gap-2">
+                <input
+                  type="number"
+                  min={0}
+                  max={50}
+                  step={0.5}
+                  value={discountPct}
+                  onChange={(e) => setDiscountPct(Number(e.target.value || 0))}
+                  className="w-24 border border-[#E5E5E5] px-3 py-2 text-sm"
+                />
+                <span className="text-sm text-[#6B6B6B]">% if paid within 7 days. 0 = off.</span>
+              </div>
+            </div>
+
+            <div className="border-t border-[#E5E5E5] pt-6">
+              <label className="text-xs uppercase tracking-[0.18em] text-[#6B6B6B]">
+                Send your overdue queue to a bookkeeper (optional)
+              </label>
+              <input
+                type="email"
+                placeholder="bookkeeper@firm.com"
+                value={bookkeeperEmail}
+                onChange={(e) => setBookkeeperEmail(e.target.value)}
+                className="mt-2 block w-full max-w-md border border-[#E5E5E5] px-3 py-2 text-sm"
+              />
+              <p className="mt-2 text-xs text-[#6B6B6B]">
+                We&apos;ll generate a magic link they can use to review and approve your
+                drafts. You stay in control — the actual Send happens from your Gmail.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3 border-t border-[#E5E5E5] pt-6">
+              <button
+                type="button"
+                onClick={() => void savePreferences()}
+                disabled={savingPrefs}
+                className="bg-[#1B4332] px-5 py-2.5 text-sm font-medium text-white disabled:opacity-60"
+              >
+                {savingPrefs ? "Saving…" : prefsSaved ? "Save changes" : "Save preferences"}
+              </button>
+              <span className="text-xs text-[#6B6B6B]">
+                Or skip — defaults work fine and you can edit anytime in Settings.
+              </span>
+            </div>
+            {prefsMessage && (
+              <p className={`text-sm ${prefsSaved ? "text-[#1B4332]" : "text-red-600"}`}>
+                {prefsMessage}
+              </p>
+            )}
+          </div>
+        </li>
+
+        <li className={`${card} border-l-4 ${step >= 3 ? "border-l-[#1B4332]" : "border-l-transparent"}`}>
+          <span className="font-mono text-xs uppercase tracking-[0.16em] text-[#1B4332]">Step 4</span>
           <h2 className="mt-2 font-display text-2xl">Install the Gmail Add-On</h2>
           <p className="mt-4 text-sm leading-relaxed text-[#6B6B6B]">
             Open Gmail, find the Paid icon in the right sidebar, then enter your API base URL and connection key.

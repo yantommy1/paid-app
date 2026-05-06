@@ -69,12 +69,32 @@ export default async function DashboardPage({
 
         <DashboardROIHero />
 
-        <section className="mt-10 mb-8">
-          <h1 className="font-display text-5xl text-[#0D0D0D]">Receivables</h1>
-          <p className="mt-3 max-w-3xl text-base leading-relaxed text-[#6B6B6B]">
-            Open balances from QuickBooks, grouped by how late they are. Draft a reminder when
-            you&apos;re ready — nothing sends without your approval.
-          </p>
+        <section className="mt-6 flex flex-wrap items-center gap-3 border border-[#E5E5E5] bg-[#FAFAFA] px-5 py-4 text-sm">
+          <span className="text-[#6B6B6B]">
+            Tune the tone, Pay Now button, early-pay discount, and bookkeeper share in
+          </span>
+          <Link
+            href="/settings"
+            className="font-semibold text-[#1B4332] underline decoration-[#1B4332]/40 underline-offset-4 hover:decoration-[#1B4332]"
+          >
+            Reminder preferences →
+          </Link>
+        </section>
+
+        <section className="mt-10 mb-8 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h1 className="font-display text-5xl text-[#0D0D0D]">Receivables</h1>
+            <p className="mt-3 max-w-3xl text-base leading-relaxed text-[#6B6B6B]">
+              Open balances from QuickBooks, grouped by how late they are. Draft a reminder when
+              you&apos;re ready — nothing sends without your approval.
+            </p>
+          </div>
+          <Link
+            href="/settings"
+            className="border border-[#E5E5E5] bg-white px-4 py-2 text-sm text-[#0D0D0D] hover:border-[#1B4332] hover:text-[#1B4332]"
+          >
+            Settings
+          </Link>
         </section>
 
         <OverdueInvoicesPanel />
