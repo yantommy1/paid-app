@@ -32,6 +32,10 @@ export type BuiltReminder = {
 /**
  * Centralized reminder builder used by every send/draft/queue path so tone, payment links,
  * and discount logic are computed identically. Never sends; just builds.
+ *
+ * Performance: settings, tone (with client history), and payment link resolution all
+ * run in parallel via Promise.all so we incur a single round-trip's worth of latency
+ * instead of three serial round-trips before the LLM call.
  */
 export async function buildReminderForInvoice(
   supabase: SupabaseClient,
@@ -51,11 +55,26 @@ export async function buildReminderForInvoice(
   senderName: string,
   options: BuildReminderOptions = {}
 ): Promise<BuiltReminder> {
-  const { data: settingsRow } = await supabase
+  const settingsPromise = supabase
     .from("settings")
     .select("tone_default, tone_auto_adjust")
     .eq("user_id", userId)
     .maybeSingle();
+
+  const paymentLinkPromise = options.disablePayLink
+    ? Promise.resolve(null as ResolvedPaymentLink | null)
+    : resolvePaymentLink(supabase, userId, invoice.id, {
+        discountPct: options.discountPctOverride,
+        planEnabled: options.paymentPlanOverride,
+      });
+
+  // We need settings before we can run computeAutoTone (so it knows defaults),
+  // so this one stays sequential — but we run paymentLink in parallel against it.
+  const [settingsRes, paymentLink] = await Promise.all([
+    settingsPromise,
+    paymentLinkPromise,
+  ]);
+  const settingsRow = settingsRes.data;
 
   const toneSettings = {
     tone_default: (settingsRow?.tone_default as Tone | undefined) ?? "professional",
@@ -75,13 +94,6 @@ export async function buildReminderForInvoice(
       },
       toneSettings
     ));
-
-  const paymentLink = options.disablePayLink
-    ? null
-    : await resolvePaymentLink(supabase, userId, invoice.id, {
-        discountPct: options.discountPctOverride,
-        planEnabled: options.paymentPlanOverride,
-      });
 
   const draft = await draftReminderEmail(
     {

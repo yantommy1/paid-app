@@ -17,6 +17,9 @@ const PatchSchema = z.object({
   payment_plan_enabled: z.boolean().optional(),
   payment_plan_installments: z.number().int().min(2).max(12).optional(),
   pay_now_button_label: z.string().min(1).max(64).optional(),
+  accept_card: z.boolean().optional(),
+  accept_ach: z.boolean().optional(),
+  quickbooks_auto_record_payments: z.boolean().optional(),
 });
 
 export async function GET(request: NextRequest) {

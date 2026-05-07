@@ -234,6 +234,62 @@ function capitalize_(s) {
 }
 
 /**
+ * Action: open Stripe Connect onboarding in a new tab so the merchant can
+ * set up payments without leaving Gmail to find Settings.
+ */
+function onStartStripeConnect(e) {
+  try {
+    var res = paidFetch_('/api/stripe/connect/status', { method: 'get' });
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      return CardService.newActionResponseBuilder()
+        .setNotification(
+          CardService.newNotification().setText(userFacingApiError_(res.statusCode, res.body))
+        )
+        .build();
+    }
+    var data = JSON.parse(res.body);
+    if (data.connected) {
+      return CardService.newActionResponseBuilder()
+        .setNotification(
+          CardService.newNotification().setText('Stripe is already connected. Reload the home card.')
+        )
+        .setNavigation(CardService.newNavigation().updateCard(buildHomePage_({})))
+        .build();
+    }
+    if (data.onboardingUrl) {
+      return CardService.newActionResponseBuilder()
+        .setOpenLink(
+          CardService.newOpenLink()
+            .setUrl(data.onboardingUrl)
+            .setOpenAs(CardService.OpenAs.OVERLAY)
+        )
+        .setNotification(
+          CardService.newNotification().setText('Opening Stripe — finish setup, then come back to Gmail.')
+        )
+        .build();
+    }
+    return CardService.newActionResponseBuilder()
+      .setNotification(
+        CardService.newNotification().setText('Stripe Connect is not configured on the server.')
+      )
+      .build();
+  } catch (err) {
+    if (err && err.name === 'PaidAuthReconnectError') {
+      return CardService.newActionResponseBuilder()
+        .setNavigation(
+          CardService.newNavigation().updateCard(
+            buildReconnectCard_('Your connection expired. Enter your API key below to reconnect.')
+          )
+        )
+        .build();
+    }
+    return CardService.newActionResponseBuilder()
+      .setNotification(CardService.newNotification().setText('Could not start Stripe setup. Try again.'))
+      .build();
+  }
+}
+
+/**
  * Step 2 - send the cached draft via backend (Gmail on server).
  * Params: invoiceId (subject/body read from cache).
  */
@@ -471,18 +527,40 @@ function buildDraftPreviewCard_(invoiceId) {
       .addWidget(
         CardService.newTextParagraph().setText(truncateDraftBodyMobile_(body))
       )
-      .addWidget(
-        CardService.newDecoratedText()
-          .setTopLabel(payNowIncluded ? 'Pay Now button included' : 'No Pay Now button')
-          .setText(
-            payNowIncluded
-              ? 'Client gets a Stripe Checkout link in this email.'
-              : 'Connect Stripe in Settings to add a Pay Now button.'
-          )
-          .setBottomLabel('Configure default discount and payment plan in Settings → Reminder preferences.')
-          .setWrapText(true)
-      )
   );
+
+  // Compact Pay Now status badge — uses an icon, not a wall of body-text.
+  var statusSec = CardService.newCardSection();
+  if (payNowIncluded) {
+    statusSec.addWidget(
+      CardService.newDecoratedText()
+        .setStartIcon(
+          CardService.newIconImage().setIcon(CardService.Icon.DOLLAR)
+        )
+        .setText('Pay Now active')
+        .setBottomLabel('This email includes a Stripe Checkout link.')
+    );
+  } else {
+    statusSec.addWidget(
+      CardService.newDecoratedText()
+        .setStartIcon(
+          CardService.newIconImage().setIcon(CardService.Icon.DOLLAR)
+        )
+        .setText('No Pay Now button')
+        .setBottomLabel('Connect Stripe to let clients pay in one click.')
+    );
+    statusSec.addWidget(
+      CardService.newButtonSet().addButton(
+        CardService.newTextButton()
+          .setText('Connect Stripe')
+          .setTextButtonStyle(CardService.TextButtonStyle.OUTLINED)
+          .setOnClickAction(
+            CardService.newAction().setFunctionName('onStartStripeConnect')
+          )
+      )
+    );
+  }
+  card.addSection(statusSec);
 
   // Tone control — re-drafts the body when tapped.
   var toneSec = CardService.newCardSection().setHeader('Tone');
@@ -979,7 +1057,7 @@ function onRefreshContextualCompose(e) {
 function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
   try {
   var builder = CardService.newCardBuilder().setHeader(
-    CardService.newCardHeader().setTitle('Paid').setSubtitle('Invoices for this contact')
+    CardService.newCardHeader().setTitle('Paid').setSubtitle('This contact')
   );
 
   // If this card is rendering for an OPEN message (not compose) and the message is
@@ -1062,7 +1140,7 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
     var email = emails[i];
     try {
       var res = paidFetch_(
-        '/api/invoices/by-contact?email=' + encodeURIComponent(email),
+        '/api/contacts/activity?email=' + encodeURIComponent(email),
         { method: 'get' }
       );
       if (res.statusCode !== 200) {
@@ -1078,52 +1156,121 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
         continue;
       }
       var data = JSON.parse(res.body);
-      var rows = data.invoices || [];
-      var overdue = rows.filter(function (r) {
-        return (r.days_overdue || 0) >= 30;
-      });
+      var totals = data.totals || {};
+      var invoicesAll = data.invoices || [];
+      var reminders = data.reminders || [];
+      var replies = data.replies || [];
+      var clientName = data.clientName || email;
 
-      if (!rows.length) {
+      if (!invoicesAll.length && !reminders.length) {
         builder.addSection(
           CardService.newCardSection().addWidget(
             CardService.newDecoratedText()
               .setText(email)
-              .setBottomLabel('No open invoices')
+              .setBottomLabel('No invoices on record for this contact')
           )
         );
         continue;
       }
 
-      if (!overdue.length) {
-        builder.addSection(
-          CardService.newCardSection().addWidget(
-            CardService.newDecoratedText()
-              .setText(email)
-              .setBottomLabel('No overdue invoices (30d+)')
-          )
-        );
-        continue;
-      }
-
-      var totalOverdueAmt = sumAmount_(overdue);
-      var clientLabel =
-        (overdue[0] &&
-          overdue[0].client_name &&
-          String(overdue[0].client_name).trim()) ||
-        email;
-      var sec = CardService.newCardSection();
-      sec.addWidget(
+      // Summary row: outstanding, overdue count, recovered, reminders sent
+      var summarySec = CardService.newCardSection();
+      summarySec.addWidget(
         CardService.newDecoratedText()
           .setTopLabel(email)
-          .setText(fmtMoney_(totalOverdueAmt))
+          .setText(clientName)
           .setBottomLabel(
-            clientLabel + ' \u00b7 ' + overdue.length + ' invoices'
+            (totals.overdueCount || 0) + ' overdue \u00b7 ' +
+            (totals.invoiceCount || 0) + ' total invoices'
+          )
+          .setWrapText(true)
+      );
+      summarySec.addWidget(
+        CardService.newDecoratedText()
+          .setTopLabel('Outstanding')
+          .setText(fmtMoney_(totals.outstanding || 0))
+      );
+      if ((totals.recovered || 0) > 0) {
+        summarySec.addWidget(
+          CardService.newDecoratedText()
+            .setTopLabel('Recovered (since first reminder)')
+            .setText(fmtMoney_(totals.recovered))
+        );
+      }
+      summarySec.addWidget(
+        CardService.newDecoratedText()
+          .setTopLabel('Reminders sent')
+          .setText(String(totals.remindersSent || 0))
+          .setBottomLabel(
+            (totals.replyCount || 0) > 0
+              ? (totals.replyCount + ' reply' + (totals.replyCount === 1 ? '' : 'ies') + ' classified')
+              : 'No replies classified'
           )
       );
-      overdue.forEach(function (row, idx) {
-        appendInvoiceBlock_(sec, row, idx > 0);
+      builder.addSection(summarySec);
+
+      // Open invoices block (only if there are any)
+      var openInvoices = invoicesAll.filter(function (r) {
+        return r.status !== 'paid';
       });
-      builder.addSection(sec);
+      if (openInvoices.length) {
+        var invSec = CardService.newCardSection().setHeader('Open invoices');
+        openInvoices.slice(0, 6).forEach(function (row, idx) {
+          appendInvoiceBlock_(invSec, row, idx > 0);
+        });
+        if (openInvoices.length > 6) {
+          invSec.addWidget(
+            CardService.newTextParagraph().setText(
+              'Plus ' + (openInvoices.length - 6) + ' more.'
+            )
+          );
+        }
+        builder.addSection(invSec);
+      }
+
+      // Recent reminders (last 5)
+      if (reminders.length) {
+        var remSec = CardService.newCardSection().setHeader('Recent reminders');
+        reminders.slice(0, 5).forEach(function (r, idx) {
+          if (idx > 0) remSec.addWidget(CardService.newDivider());
+          var dateLabel = (r.created_at || '').slice(0, 10);
+          var bottomBits = [];
+          if (r.tone) bottomBits.push(capitalize_(r.tone) + ' tone');
+          if (r.pay_link_included) bottomBits.push('Pay Now included');
+          if (r.channel) bottomBits.push('via ' + r.channel);
+          remSec.addWidget(
+            CardService.newDecoratedText()
+              .setTopLabel(dateLabel)
+              .setText(r.subject || '(no subject)')
+              .setBottomLabel(bottomBits.join(' \u00b7 '))
+              .setWrapText(true)
+          );
+        });
+        builder.addSection(remSec);
+      }
+
+      // Recent replies (last 3)
+      if (replies.length) {
+        var repSec = CardService.newCardSection().setHeader('Recent replies');
+        replies.slice(0, 3).forEach(function (rep, idx) {
+          if (idx > 0) repSec.addWidget(CardService.newDivider());
+          var dateLabel = (rep.created_at || '').slice(0, 10);
+          var bottom = '';
+          if (rep.classification === 'will_pay_later' && rep.promised_pay_date) {
+            bottom = 'Promised by ' + rep.promised_pay_date;
+          } else if (rep.suggested_action) {
+            bottom = rep.suggested_action;
+          }
+          repSec.addWidget(
+            CardService.newDecoratedText()
+              .setTopLabel(dateLabel)
+              .setText(classificationHeadline_(rep.classification))
+              .setBottomLabel(bottom)
+              .setWrapText(true)
+          );
+        });
+        builder.addSection(repSec);
+      }
     } catch (err) {
       if (err && err.name === 'PaidAuthReconnectError') {
         return buildReconnectCard_(

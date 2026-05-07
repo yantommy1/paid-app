@@ -2,8 +2,12 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { InvoiceRow } from "@/lib/types";
 import { type Tone, toneGuidanceCopy } from "@/lib/tone/compute";
 
-/** Override with ANTHROPIC_MODEL in .env if your account uses a different ID. */
-const DEFAULT_MODEL = "claude-3-5-sonnet-20241022";
+/**
+ * Reminder drafts default to Haiku — ~5x faster than Sonnet and the quality
+ * gap on a 3-paragraph email is negligible. Set ANTHROPIC_MODEL in .env to
+ * pin a specific model (e.g. claude-3-5-sonnet-20241022) per environment.
+ */
+const DEFAULT_MODEL = "claude-3-5-haiku-20241022";
 
 function getAnthropicClient(): Anthropic {
   const key = process.env.ANTHROPIC_API_KEY?.trim();

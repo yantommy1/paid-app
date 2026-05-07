@@ -3,6 +3,7 @@
 import { BillingSection } from "@/components/settings/BillingSection";
 import { ReminderPreferencesSection } from "@/components/settings/ReminderPreferencesSection";
 import { BookkeeperShareSection } from "@/components/settings/BookkeeperShareSection";
+import { PaymentsSection } from "@/components/settings/PaymentsSection";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -162,6 +163,8 @@ export function SettingsClient({
       />
 
       <ReminderPreferencesSection />
+
+      <PaymentsSection />
 
       <BookkeeperShareSection />
 

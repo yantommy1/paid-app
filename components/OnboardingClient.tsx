@@ -48,6 +48,27 @@ export function OnboardingClient({ initialStep, displayName, quickbooksConnected
   const [prefsSaved, setPrefsSaved] = useState(false);
   const [prefsMessage, setPrefsMessage] = useState<string | null>(null);
 
+  // Step 4: Stripe Connect (optional)
+  const [acceptCard, setAcceptCard] = useState<boolean>(true);
+  const [acceptAch, setAcceptAch] = useState<boolean>(true);
+  const [stripeConnected, setStripeConnected] = useState<boolean>(false);
+  const [stripeBusy, setStripeBusy] = useState(false);
+  const [stripeMessage, setStripeMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/stripe/connect/status")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { connected?: boolean } | null) => {
+        if (cancelled || !j) return;
+        if (typeof j.connected === "boolean") setStripeConnected(j.connected);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   useEffect(() => {
     setQbConn(quickbooksConnected);
     setGmConn(gmailConnected);
@@ -75,6 +96,44 @@ export function OnboardingClient({ initialStep, displayName, quickbooksConnected
     const supabase = createClient();
     await supabase.auth.signOut();
     router.push("/");
+  }
+
+  async function startStripeConnect() {
+    setStripeBusy(true);
+    setStripeMessage(null);
+    try {
+      // Save payment method preferences alongside the Connect handoff so the
+      // settings stick even if the merchant doesn't finish onboarding now.
+      await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          accept_card: acceptCard,
+          accept_ach: acceptAch,
+        }),
+      }).catch(() => {});
+
+      const res = await fetch("/api/stripe/connect/status");
+      const j = (await res.json()) as {
+        connected?: boolean;
+        onboardingUrl?: string | null;
+        error?: string;
+      };
+      if (j.connected) {
+        setStripeConnected(true);
+        setStripeMessage("Stripe is already connected.");
+        return;
+      }
+      if (j.onboardingUrl) {
+        window.location.href = j.onboardingUrl;
+        return;
+      }
+      setStripeMessage(j.error ?? "Could not start Stripe setup.");
+    } catch {
+      setStripeMessage("Network error starting Stripe.");
+    } finally {
+      setStripeBusy(false);
+    }
   }
 
   async function savePreferences() {
@@ -303,7 +362,74 @@ export function OnboardingClient({ initialStep, displayName, quickbooksConnected
         </li>
 
         <li className={`${card} border-l-4 ${step >= 3 ? "border-l-[#1B4332]" : "border-l-transparent"}`}>
-          <span className="font-mono text-xs uppercase tracking-[0.16em] text-[#1B4332]">Step 4</span>
+          <span className="font-mono text-xs uppercase tracking-[0.16em] text-[#1B4332]">Step 4 · optional</span>
+          <h2 className="mt-2 font-display text-2xl">Connect Stripe to accept payments</h2>
+          <p className="mt-2 text-sm leading-relaxed text-[#6B6B6B]">
+            With Stripe connected, every reminder gets a Pay Now button and your clients
+            can pay with one click — no account creation on their end. ~5 minute setup,
+            and you can skip this and turn it on later in Settings.
+          </p>
+
+          {stripeConnected ? (
+            <div className="mt-5">
+              <ConnectedPill />
+              <p className="mt-3 text-sm text-[#6B6B6B]">
+                Stripe Connect is set up. Pay Now buttons are active on every reminder.
+              </p>
+            </div>
+          ) : (
+            <div className="mt-6 space-y-5">
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-[#6B6B6B]">
+                  Which payment methods do you want to accept?
+                </p>
+                <div className="mt-3 flex flex-wrap gap-6">
+                  <label className="flex items-center gap-2 text-sm text-[#0D0D0D]">
+                    <input
+                      type="checkbox"
+                      checked={acceptCard}
+                      onChange={(e) => setAcceptCard(e.target.checked)}
+                    />
+                    Credit / debit card{" "}
+                    <span className="text-xs text-[#6B6B6B]">(2.9% + $0.30)</span>
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-[#0D0D0D]">
+                    <input
+                      type="checkbox"
+                      checked={acceptAch}
+                      onChange={(e) => setAcceptAch(e.target.checked)}
+                    />
+                    ACH bank debit{" "}
+                    <span className="text-xs text-[#6B6B6B]">(0.8%, capped at $5)</span>
+                  </label>
+                </div>
+                <p className="mt-2 text-xs text-[#6B6B6B]">
+                  ACH is dramatically cheaper for $5k+ invoices. We recommend leaving both on.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-4">
+                <button
+                  type="button"
+                  onClick={() => void startStripeConnect()}
+                  disabled={stripeBusy || (!acceptCard && !acceptAch)}
+                  className="bg-[#1B4332] px-5 py-2.5 text-sm font-medium text-white disabled:opacity-60"
+                >
+                  {stripeBusy ? "Opening Stripe…" : "Connect Stripe"}
+                </button>
+                <span className="text-xs text-[#6B6B6B]">
+                  Or skip — you can connect later in Settings.
+                </span>
+              </div>
+              {stripeMessage && (
+                <p className="text-sm text-red-600">{stripeMessage}</p>
+              )}
+            </div>
+          )}
+        </li>
+
+        <li className={`${card} border-l-4 ${step >= 3 ? "border-l-[#1B4332]" : "border-l-transparent"}`}>
+          <span className="font-mono text-xs uppercase tracking-[0.16em] text-[#1B4332]">Step 5</span>
           <h2 className="mt-2 font-display text-2xl">Install the Gmail Add-On</h2>
           <p className="mt-4 text-sm leading-relaxed text-[#6B6B6B]">
             Open Gmail, find the Paid icon in the right sidebar, then enter your API base URL and connection key.
