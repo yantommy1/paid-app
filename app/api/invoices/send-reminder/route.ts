@@ -43,25 +43,43 @@ export async function POST(request: NextRequest) {
   }
 
   const supabase = await createRouteHandlerClient(request);
-  const { data: inv, error } = await supabase
-    .from("invoices")
-    .select("*")
-    .eq("id", parsed.data.invoiceId)
-    .eq("user_id", ctx.user.id)
-    .single();
 
-  if (error || !inv) {
-    return notFound("Invoice not found");
-  }
-
-  const senderName = getUserDisplayName(ctx.user);
+  // Fast path: the add-on always sends subject+body+tone from its local cache.
+  // We only need the client_email to build a compose URL — slim the read.
+  // The legacy "build the draft on demand" branch still works for callers that
+  // pass invoiceId only, but it falls through to the heavy path below.
   let subject = parsed.data.subject;
   let body = parsed.data.body;
   let tone: string | null = parsed.data.tone ?? null;
   let payNowIncluded = parsed.data.payNowIncluded ?? false;
   let discountPct: number | null = parsed.data.discountPct ?? null;
 
-  if (!subject || !body) {
+  let clientEmail: string;
+
+  if (subject && body) {
+    // Slim read — just the client_email.
+    const { data: inv, error } = await supabase
+      .from("invoices")
+      .select("client_email")
+      .eq("id", parsed.data.invoiceId)
+      .eq("user_id", ctx.user.id)
+      .single();
+    if (error || !inv) {
+      return notFound("Invoice not found");
+    }
+    clientEmail = inv.client_email;
+  } else {
+    // Heavy path — pull full row so we can rebuild the draft.
+    const { data: inv, error } = await supabase
+      .from("invoices")
+      .select("*")
+      .eq("id", parsed.data.invoiceId)
+      .eq("user_id", ctx.user.id)
+      .single();
+    if (error || !inv) {
+      return notFound("Invoice not found");
+    }
+    const senderName = getUserDisplayName(ctx.user);
     const built = await buildReminderForInvoice(supabase, ctx.user.id, inv, senderName, {
       toneOverride: parsed.data.tone,
     });
@@ -70,35 +88,39 @@ export async function POST(request: NextRequest) {
     tone = tone ?? built.tone;
     payNowIncluded = payNowIncluded || built.payNowIncluded;
     discountPct = discountPct ?? built.discountPct;
+    clientEmail = inv.client_email;
   }
 
   const compose = buildGmailComposeUrl({
-    to: inv.client_email,
+    to: clientEmail,
     subject: subject!,
     bodyText: body!,
   });
 
   const now = new Date().toISOString();
-  await supabase
-    .from("invoices")
-    .update({
-      status: "reminder_sent",
-      reminder_sent_at: now,
-      reminder_pending: false,
-      reminder_draft: null,
-    })
-    .eq("id", inv.id);
 
-  await supabase.from("reminder_logs").insert({
-    user_id: ctx.user.id,
-    invoice_id: inv.id,
-    channel: "gmail-compose",
-    subject,
-    sent_to: inv.client_email,
-    tone,
-    pay_link_included: payNowIncluded,
-    discount_pct: discountPct,
-  });
+  // Parallelize the two writes — they don't depend on each other.
+  await Promise.all([
+    supabase
+      .from("invoices")
+      .update({
+        status: "reminder_sent",
+        reminder_sent_at: now,
+        reminder_pending: false,
+        reminder_draft: null,
+      })
+      .eq("id", parsed.data.invoiceId),
+    supabase.from("reminder_logs").insert({
+      user_id: ctx.user.id,
+      invoice_id: parsed.data.invoiceId,
+      channel: parsed.data.channel ? "gmail-compose-" + parsed.data.channel : "gmail-compose",
+      subject,
+      sent_to: clientEmail,
+      tone,
+      pay_link_included: payNowIncluded,
+      discount_pct: discountPct,
+    }),
+  ]);
 
   return NextResponse.json({
     ok: true,

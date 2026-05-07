@@ -84,13 +84,46 @@ function onDraftReminder(e) {
   }
 
   try {
-    var res = paidFetch_('/api/invoices/draft-reminder', {
+    // One round-trip generates ALL three tones in parallel server-side.
+    // After this, onChangeTone swaps the visible tone locally with no network call.
+    var res = paidFetch_('/api/invoices/draft-reminder-all-tones', {
       method: 'post',
       payload: JSON.stringify({
         invoiceId: id,
         senderName: getUserDisplayName_(),
       }),
     });
+    if (res.statusCode === 404) {
+      // Older deploy without all-tones — fall back to single-tone endpoint.
+      res = paidFetch_('/api/invoices/draft-reminder', {
+        method: 'post',
+        payload: JSON.stringify({
+          invoiceId: id,
+          senderName: getUserDisplayName_(),
+        }),
+      });
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        return CardService.newActionResponseBuilder()
+          .setNotification(
+            CardService.newNotification().setText(userFacingApiError_(res.statusCode, res.body))
+          )
+          .build();
+      }
+      var fallback = JSON.parse(res.body);
+      cacheReminderDraft_(
+        id,
+        clientEmail,
+        fallback.subject || '',
+        fallback.body || '',
+        fallback.tone || 'professional',
+        !!fallback.payNowIncluded,
+        null
+      );
+      return CardService.newActionResponseBuilder()
+        .setNavigation(CardService.newNavigation().pushCard(buildDraftPreviewCard_(String(id))))
+        .setNotification(CardService.newNotification().setText('Drafted. Adjust tone below.'))
+        .build();
+    }
     if (res.statusCode < 200 || res.statusCode >= 300) {
       return CardService.newActionResponseBuilder()
         .setNotification(
@@ -99,14 +132,26 @@ function onDraftReminder(e) {
         .build();
     }
     var data = JSON.parse(res.body);
-    var subject = data.subject || '';
-    var body = data.body || '';
-    var tone = data.tone || 'professional';
-    var payNowIncluded = !!data.payNowIncluded;
-    cacheReminderDraft_(id, clientEmail, subject, body, tone, payNowIncluded);
+    var autoTone = data.autoTone || 'professional';
+    var allTones = data.tones || {};
+    var picked = allTones[autoTone] || allTones.professional || allTones.friendly;
+    if (!picked) {
+      return CardService.newActionResponseBuilder()
+        .setNotification(CardService.newNotification().setText('Empty draft response.'))
+        .build();
+    }
+    cacheReminderDraft_(
+      id,
+      clientEmail,
+      picked.subject || '',
+      picked.body || '',
+      autoTone,
+      !!picked.payNowIncluded,
+      allTones
+    );
     return CardService.newActionResponseBuilder()
       .setNavigation(CardService.newNavigation().pushCard(buildDraftPreviewCard_(String(id))))
-      .setNotification(CardService.newNotification().setText('Drafted (' + tone + ' tone). Adjust below.'))
+      .setNotification(CardService.newNotification().setText('Drafted (' + autoTone + ' tone). Tap any tone to switch.'))
       .build();
   } catch (err) {
     if (err && err.name === 'PaidAuthReconnectError') {
@@ -175,6 +220,30 @@ function onChangeTone(e) {
 
   var existing = loadReminderDraft_(id) || {};
 
+  // Fast path: if we cached all three tones from the initial draft, swap locally
+  // with zero network round-trip.
+  if (existing.allTones && existing.allTones[tone]) {
+    var pre = existing.allTones[tone];
+    cacheReminderDraft_(
+      id,
+      existing.clientEmail || '',
+      pre.subject || '',
+      pre.body || '',
+      tone,
+      !!pre.payNowIncluded,
+      existing.allTones
+    );
+    return CardService.newActionResponseBuilder()
+      .setNavigation(
+        CardService.newNavigation().updateCard(buildDraftPreviewCard_(String(id)))
+      )
+      .setNotification(
+        CardService.newNotification().setText('Switched to ' + tone + ' tone.')
+      )
+      .build();
+  }
+
+  // Slow path (cache miss / older deployment): re-draft via the single-tone endpoint.
   try {
     var res = paidFetch_('/api/invoices/draft-reminder', {
       method: 'post',
@@ -198,7 +267,8 @@ function onChangeTone(e) {
       data.subject || '',
       data.body || '',
       data.tone || tone,
-      !!data.payNowIncluded
+      !!data.payNowIncluded,
+      existing.allTones || null
     );
     return CardService.newActionResponseBuilder()
       .setNavigation(
@@ -424,7 +494,7 @@ function reminderDraftKey_(invoiceId) {
   return 'paid_reminder_draft_' + String(invoiceId);
 }
 
-function cacheReminderDraft_(invoiceId, clientEmail, subject, body, tone, payNowIncluded) {
+function cacheReminderDraft_(invoiceId, clientEmail, subject, body, tone, payNowIncluded, allTones) {
   PropertiesService.getUserProperties().setProperty(
     reminderDraftKey_(invoiceId),
     JSON.stringify({
@@ -433,6 +503,9 @@ function cacheReminderDraft_(invoiceId, clientEmail, subject, body, tone, payNow
       body: body || '',
       tone: tone || 'professional',
       payNowIncluded: !!payNowIncluded,
+      // allTones (optional) is a {friendly:{subject,body,payNowIncluded}, professional:{...}, firm:{...}}
+      // map. When present, onChangeTone swaps locally without an LLM round-trip.
+      allTones: allTones || null,
     })
   );
 }
