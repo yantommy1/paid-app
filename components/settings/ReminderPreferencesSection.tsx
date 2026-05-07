@@ -142,7 +142,9 @@ export function ReminderPreferencesSection() {
             Include a Pay Now button on every reminder
           </label>
           <p className="mt-2 text-xs text-[#6B6B6B]">
-            Requires Stripe Connect to be set up. The button creates a Checkout session at click time.
+            <strong className="text-[#0D0D0D]">Your clients never sign up for anything.</strong>{" "}
+            Stripe Checkout is a hosted page — they enter card or bank details and they&apos;re done in 30 seconds.
+            Only you onboard once to Stripe Connect (~5 minutes) so you can receive payouts to your bank account.
           </p>
           <div className="mt-4">
             <label className="text-xs uppercase tracking-[0.18em] text-[#6B6B6B]">Pay Now button label</label>

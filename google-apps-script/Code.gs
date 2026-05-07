@@ -645,13 +645,72 @@ function appendInvoiceBlock_(section, row, withDivider) {
 // --- UI builders ---
 
 /**
- * Single GET to gmail-sidebar when deployed; if that route returns 404 (older deploy),
- * merge GET /api/invoices/summary + GET /api/invoices (same shape as gmail-sidebar).
+ * Single GET to /api/gmail/home-pack — invoices + cohorts + activity in one round-trip.
+ * Falls back to /api/invoices/gmail-sidebar (older deploys) so the add-on keeps working
+ * even if the backend is mid-deploy and home-pack is not yet live.
+ *
+ * Result is cached in user properties for HOME_PACK_TTL_MS so that repeat opens
+ * of the sidebar render instantly. The Refresh button bypasses the cache.
  */
-function fetchGmailSidebarPack_() {
-  var primary = paidFetch_('/api/invoices/gmail-sidebar', { method: 'get' }, 'gmail-sidebar');
-  if (primary.statusCode === 200) return { ok: true, data: JSON.parse(primary.body) };
+var HOME_PACK_CACHE_KEY = 'paid_home_pack_cache';
+var HOME_PACK_TTL_MS = 60 * 1000;
+
+function fetchGmailSidebarPack_(forceRefresh) {
+  if (!forceRefresh) {
+    var cached = readHomePackCache_();
+    if (cached) return { ok: true, data: cached, cached: true };
+  }
+
+  var primary = paidFetch_('/api/gmail/home-pack', { method: 'get' }, 'home-pack');
+  if (primary.statusCode === 200) {
+    var data = JSON.parse(primary.body);
+    writeHomePackCache_(data);
+    return { ok: true, data: data, cached: false };
+  }
+  if (primary.statusCode === 404) {
+    // Older deploy without home-pack — fall back to gmail-sidebar (no activity).
+    var sidebar = paidFetch_('/api/invoices/gmail-sidebar', { method: 'get' }, 'gmail-sidebar');
+    if (sidebar.statusCode === 200) {
+      var sd = JSON.parse(sidebar.body);
+      sd.activity = [];
+      writeHomePackCache_(sd);
+      return { ok: true, data: sd, cached: false };
+    }
+    return { ok: false, statusCode: sidebar.statusCode, body: sidebar.body };
+  }
   return { ok: false, statusCode: primary.statusCode, body: primary.body };
+}
+
+function readHomePackCache_() {
+  try {
+    var raw = PropertiesService.getUserProperties().getProperty(HOME_PACK_CACHE_KEY);
+    if (!raw) return null;
+    var entry = JSON.parse(raw);
+    if (!entry || !entry.savedAt || !entry.data) return null;
+    if (Date.now() - entry.savedAt > HOME_PACK_TTL_MS) return null;
+    return entry.data;
+  } catch (err) {
+    return null;
+  }
+}
+
+function writeHomePackCache_(data) {
+  try {
+    PropertiesService.getUserProperties().setProperty(
+      HOME_PACK_CACHE_KEY,
+      JSON.stringify({ savedAt: Date.now(), data: data })
+    );
+  } catch (err) {
+    // Properties has size limits; on overflow just skip the cache.
+  }
+}
+
+function clearHomePackCache_() {
+  try {
+    PropertiesService.getUserProperties().deleteProperty(HOME_PACK_CACHE_KEY);
+  } catch (err) {
+    // ignore
+  }
 }
 
 function buildHomePage_(e) {
@@ -665,23 +724,16 @@ function buildHomePage_(e) {
   }
 
   try {
-    try {
-      checkHealth_();
-    } catch (healthErr) {
-      return buildDiagnosticCard_(
-        'health',
-        'network',
-        'Cannot reach Paid servers. Check your internet connection.',
-        'onRefreshHome'
-      );
-    }
-
+    // No upfront /api/health round-trip — if home-pack fails, the user sees the same
+    // diagnostic card and has the same "Refresh" affordance. Saves one network call
+    // per open.
     maybeProactiveRefresh_();
 
-    var pack = fetchGmailSidebarPack_();
+    var forceRefresh = !!(e && e.parameters && e.parameters.forceRefresh);
+    var pack = fetchGmailSidebarPack_(forceRefresh);
     if (!pack.ok) {
       return buildDiagnosticCard_(
-        'gmail-sidebar',
+        'home-pack',
         classifyErrorKind_(pack.statusCode, pack.body),
         userFacingApiError_(pack.statusCode, pack.body),
         'onRefreshHome'
@@ -707,7 +759,7 @@ function buildHomePage_(e) {
     cohortSec.addWidget(buildCohortRow_(DOT_OK, 'Current', cohorts.current));
     card.addSection(cohortSec);
 
-    var activitySec = buildActivitySection_();
+    var activitySec = buildActivitySectionFromPack_(data.activity);
     if (activitySec) card.addSection(activitySec);
 
     var overdue = invoices.filter(function (r) {
@@ -779,6 +831,8 @@ function buildHomePage_(e) {
 }
 
 function onRefreshHome(e) {
+  // Bust the home-pack cache so the user gets fresh data after pressing Refresh.
+  clearHomePackCache_();
   return CardService.newActionResponseBuilder()
     .setNavigation(CardService.newNavigation().updateCard(buildHomePage_(e)))
     .build();
@@ -1722,15 +1776,12 @@ function classificationShortLabel_(c) {
 
 /**
  * "Activity" section on the home card — recent client replies the system has classified,
- * with quick actions. Returns null if there is nothing to show or the API errors.
+ * with quick actions. Receives items already loaded by /api/gmail/home-pack so this is
+ * synchronous (no second network call).
  */
-function buildActivitySection_() {
+function buildActivitySectionFromPack_(items) {
   try {
-    var res = paidFetch_('/api/replies/recent', { method: 'get' });
-    if (res.statusCode !== 200) return null;
-    var data = JSON.parse(res.body);
-    var items = (data && data.items) || [];
-    if (!items.length) return null;
+    if (!items || !items.length) return null;
 
     var sec = CardService.newCardSection().setHeader('Activity');
     items.slice(0, 6).forEach(function (item, idx) {
