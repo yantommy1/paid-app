@@ -11,9 +11,15 @@ const BodySchema = z.object({
   messageId: z.string().min(1).optional(),
   clientEmail: z.string().email().optional(),
   replyText: z.string().min(1).max(10000),
+  // When true, dedupe by thread_id and skip if a recent classification exists.
+  // The Gmail Add-On sets this when auto-classifying on thread open so we
+  // don't burn an LLM call per render.
+  auto: z.boolean().optional(),
 });
 
 const FOLLOWUP_BUFFER_DAYS = 3;
+const CANNOT_PAY_FOLLOWUP_DAYS = 7;
+const PAYMENT_PLAN_FOLLOWUP_DAYS = 5;
 
 function todayISO(): string {
   const d = new Date();
@@ -77,6 +83,40 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // Auto-dedupe: when the add-on auto-classifies on thread open, return any
+  // existing recent classification instead of burning another LLM call.
+  if (parsed.data.auto && parsed.data.threadId) {
+    const { data: existing } = await supabase
+      .from("reply_classifications")
+      .select("id, classification, promised_pay_date, raw_excerpt, suggested_action, invoice_id, created_at")
+      .eq("user_id", ctx.user.id)
+      .eq("thread_id", parsed.data.threadId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (existing) {
+      const { data: nextSched } = await supabase
+        .from("reminder_schedules")
+        .select("scheduled_for")
+        .eq("user_id", ctx.user.id)
+        .eq("invoice_id", existing.invoice_id ?? "")
+        .is("cancelled_at", null)
+        .is("fulfilled_at", null)
+        .order("scheduled_for", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      return NextResponse.json({
+        classification: existing.classification,
+        promisedPayDate: existing.promised_pay_date,
+        excerpt: existing.raw_excerpt,
+        suggestedAction: existing.suggested_action,
+        scheduledFor: nextSched?.scheduled_for ?? null,
+        invoiceId: existing.invoice_id,
+        cached: true,
+      });
+    }
+  }
+
   let result;
   try {
     result = await classifyReply({
@@ -107,24 +147,38 @@ export async function POST(request: NextRequest) {
     .select("id")
     .single();
 
-  // If client promised a future pay date, schedule a follow-up reminder a few days after.
+  // Auto-schedule follow-ups based on the classification.
   let scheduledFor: string | null = null;
-  if (
-    result.classification === "will_pay_later" &&
-    result.promisedPayDate &&
-    invoiceId
-  ) {
-    const promised = new Date(result.promisedPayDate);
-    if (!isNaN(promised.getTime())) {
-      const followup = new Date(
-        promised.getTime() + FOLLOWUP_BUFFER_DAYS * 86400000
-      );
+  let scheduleReason: string | null = null;
+  if (invoiceId) {
+    if (result.classification === "will_pay_later" && result.promisedPayDate) {
+      const promised = new Date(result.promisedPayDate);
+      if (!isNaN(promised.getTime())) {
+        const followup = new Date(promised.getTime() + FOLLOWUP_BUFFER_DAYS * 86400000);
+        scheduledFor = followup.toISOString().slice(0, 10);
+        scheduleReason = `Client promised payment by ${result.promisedPayDate}; follow up if not received.`;
+      }
+    } else if (result.classification === "cannot_pay") {
+      const followup = new Date(Date.now() + CANNOT_PAY_FOLLOWUP_DAYS * 86400000);
       scheduledFor = followup.toISOString().slice(0, 10);
+      scheduleReason =
+        "Client said they cannot pay. Follow up with a payment plan offer.";
+    } else if (result.classification === "payment_plan_request") {
+      const followup = new Date(Date.now() + PAYMENT_PLAN_FOLLOWUP_DAYS * 86400000);
+      scheduledFor = followup.toISOString().slice(0, 10);
+      scheduleReason =
+        "Client requested a payment plan. Follow up if no agreement reached.";
+    } else if (result.classification === "invoice_issue") {
+      // Don't auto-schedule — flag for the owner to handle manually first.
+      scheduleReason = null;
+    }
+
+    if (scheduledFor && scheduleReason) {
       await supabase.from("reminder_schedules").insert({
         user_id: ctx.user.id,
         invoice_id: invoiceId,
         scheduled_for: scheduledFor,
-        reason: `Client promised payment by ${result.promisedPayDate}`,
+        reason: scheduleReason,
         source_classification_id: classificationRow?.id ?? null,
       });
     }

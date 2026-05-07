@@ -3,7 +3,8 @@
   "exceptionLogging": "STACKDRIVER",
   "runtimeVersion": "V8",
   "urlFetchWhitelist": [
-    "https://paid-app.com/"
+    "https://paid-app.com/",
+    "https://gmail.googleapis.com/"
   ],
   "oauthScopes": [
     "https://www.googleapis.com/auth/gmail.addons.execute",

@@ -17,8 +17,8 @@ export async function GET(request: NextRequest) {
 
   const supabase = await createRouteHandlerClient(request);
 
-  // Run both queries in parallel so we don't serialise DB round-trips either.
-  const [invoiceQuery, replyQuery] = await Promise.all([
+  // Run all three queries in parallel so we don't serialise DB round-trips.
+  const [invoiceQuery, replyQuery, reminderQuery] = await Promise.all([
     supabase
       .from("invoices")
       .select("*")
@@ -34,6 +34,13 @@ export async function GET(request: NextRequest) {
       .gte("created_at", new Date(Date.now() - 30 * 86400000).toISOString())
       .order("created_at", { ascending: false })
       .limit(12),
+    supabase
+      .from("reminder_logs")
+      .select("id, invoice_id, channel, subject, sent_to, tone, pay_link_included, discount_pct, created_at")
+      .eq("user_id", ctx.user.id)
+      .gte("created_at", new Date(Date.now() - 30 * 86400000).toISOString())
+      .order("created_at", { ascending: false })
+      .limit(8),
   ]);
 
   if (invoiceQuery.error) {
@@ -105,12 +112,29 @@ export async function GET(request: NextRequest) {
     nextFollowup: r.invoice_id ? nextFollowupByInvoice[r.invoice_id] ?? null : null,
   }));
 
+  // Recent reminders sent — surface a global timeline in the sidebar so the
+  // user sees outgoing activity at a glance, not just inbound replies.
+  const reminders = reminderQuery.error ? [] : reminderQuery.data ?? [];
+  const recentReminders = reminders.map((r) => ({
+    id: r.id,
+    invoiceId: r.invoice_id,
+    channel: r.channel,
+    subject: r.subject,
+    sentTo: r.sent_to,
+    tone: r.tone,
+    payLinkIncluded: r.pay_link_included,
+    discountPct: r.discount_pct,
+    createdAt: r.created_at,
+    invoice: r.invoice_id ? invoicesById[r.invoice_id] ?? null : null,
+  }));
+
   return NextResponse.json(
     {
       cohorts,
       header,
       invoices,
       activity,
+      recentReminders,
       user_email: ctx.user.email ?? "",
     },
     {

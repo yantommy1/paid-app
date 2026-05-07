@@ -304,6 +304,167 @@ function capitalize_(s) {
 }
 
 /**
+ * Action: load and render full timeline for one invoice (reminders sent,
+ * replies classified, scheduled follow-ups). Surfaces "what happened" and
+ * "what's planned next" so the merchant can see their A/R workflow at a
+ * glance without leaving Gmail.
+ */
+function onShowInvoiceHistory(e) {
+  var p = (e && e.parameters) || {};
+  var id = p.invoiceId;
+  if (!id) {
+    return CardService.newActionResponseBuilder()
+      .setNotification(CardService.newNotification().setText('Missing invoice id'))
+      .build();
+  }
+
+  try {
+    var res = paidFetch_('/api/invoices/' + encodeURIComponent(id) + '/history', { method: 'get' });
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      return CardService.newActionResponseBuilder()
+        .setNotification(
+          CardService.newNotification().setText(userFacingApiError_(res.statusCode, res.body))
+        )
+        .build();
+    }
+    var data = JSON.parse(res.body);
+    return CardService.newActionResponseBuilder()
+      .setNavigation(CardService.newNavigation().pushCard(buildInvoiceHistoryCard_(data)))
+      .build();
+  } catch (err) {
+    if (err && err.name === 'PaidAuthReconnectError') {
+      return CardService.newActionResponseBuilder()
+        .setNavigation(
+          CardService.newNavigation().updateCard(
+            buildReconnectCard_('Your connection expired. Enter your API key below to reconnect.')
+          )
+        )
+        .build();
+    }
+    return CardService.newActionResponseBuilder()
+      .setNotification(CardService.newNotification().setText('Could not load history. Try again.'))
+      .build();
+  }
+}
+
+function buildInvoiceHistoryCard_(data) {
+  var inv = data.invoice || {};
+  var reminders = data.reminders || [];
+  var replies = data.replies || [];
+  var schedules = data.schedules || [];
+
+  var card = CardService.newCardBuilder().setHeader(
+    CardService.newCardHeader()
+      .setTitle('History')
+      .setSubtitle((inv.clientName || 'Client') + ' · ' + fmtMoney_(inv.amount || 0))
+  );
+
+  // Header summary section
+  var summary = CardService.newCardSection();
+  summary.addWidget(
+    CardService.newDecoratedText()
+      .setTopLabel('Invoice ' + (inv.quickbooksInvoiceId || ''))
+      .setText(fmtMoney_(inv.amount || 0))
+      .setBottomLabel(
+        (inv.daysOverdue || 0) + ' days overdue · due ' + (inv.dueDate || '')
+      )
+  );
+  card.addSection(summary);
+
+  // Scheduled follow-ups section — what's planned next.
+  if (schedules.length) {
+    var schedSec = CardService.newCardSection().setHeader('Planned follow-ups');
+    schedules.forEach(function (s, i) {
+      if (i > 0) schedSec.addWidget(CardService.newDivider());
+      schedSec.addWidget(
+        CardService.newDecoratedText()
+          .setTopLabel(s.scheduled_for || '')
+          .setText('Auto follow-up')
+          .setBottomLabel(s.reason || '')
+          .setWrapText(true)
+      );
+    });
+    card.addSection(schedSec);
+  } else {
+    var emptySched = CardService.newCardSection().setHeader('Planned follow-ups');
+    emptySched.addWidget(
+      CardService.newTextParagraph().setText(
+        'No automated follow-up scheduled. Click any client reply on this invoice and we will plan the next step.'
+      )
+    );
+    card.addSection(emptySched);
+  }
+
+  // Reminder log section — what we sent.
+  var remSec = CardService.newCardSection().setHeader('Reminders sent');
+  if (!reminders.length) {
+    remSec.addWidget(CardService.newTextParagraph().setText('No reminders sent yet.'));
+  } else {
+    reminders.forEach(function (r, i) {
+      if (i > 0) remSec.addWidget(CardService.newDivider());
+      var bits = [];
+      if (r.tone) bits.push(capitalize_(r.tone) + ' tone');
+      if (r.pay_link_included) bits.push('Pay Now included');
+      if (r.channel) bits.push(r.channel);
+      remSec.addWidget(
+        CardService.newDecoratedText()
+          .setTopLabel((r.created_at || '').slice(0, 10))
+          .setText(r.subject || '(no subject)')
+          .setBottomLabel(bits.join(' · '))
+          .setWrapText(true)
+      );
+    });
+  }
+  card.addSection(remSec);
+
+  // Reply log section — what the client said.
+  var repSec = CardService.newCardSection().setHeader('Client replies');
+  if (!replies.length) {
+    repSec.addWidget(CardService.newTextParagraph().setText('No replies classified yet.'));
+  } else {
+    replies.forEach(function (rep, i) {
+      if (i > 0) repSec.addWidget(CardService.newDivider());
+      var bottom = '';
+      if (rep.classification === 'will_pay_later' && rep.promised_pay_date) {
+        bottom = 'Promised by ' + rep.promised_pay_date;
+      } else if (rep.suggested_action) {
+        bottom = rep.suggested_action;
+      }
+      repSec.addWidget(
+        CardService.newDecoratedText()
+          .setTopLabel((rep.created_at || '').slice(0, 10))
+          .setText(classificationHeadline_(rep.classification))
+          .setBottomLabel(bottom)
+          .setWrapText(true)
+      );
+    });
+  }
+  card.addSection(repSec);
+
+  // Quick actions
+  var actions = CardService.newCardSection();
+  actions.addWidget(
+    CardService.newButtonSet()
+      .addButton(
+        CardService.newTextButton()
+          .setText('Draft reminder')
+          .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+          .setOnClickAction(
+            CardService.newAction()
+              .setFunctionName('onDraftReminder')
+              .setParameters({
+                invoiceId: String(inv.id),
+                clientEmail: String(inv.clientEmail || ''),
+              })
+          )
+      )
+  );
+  card.addSection(actions);
+
+  return card.build();
+}
+
+/**
  * Action: open Stripe Connect onboarding in a new tab so the merchant can
  * set up payments without leaving Gmail to find Settings.
  */
@@ -796,20 +957,40 @@ function appendInvoiceBlock_(section, row, withDivider) {
       .setText(fmtMoney_(row.amount))
       .setBottomLabel(bottomLine)
   );
+  // Show last reminder date inline if we have it.
+  if (row.reminder_sent_at) {
+    section.addWidget(
+      CardService.newDecoratedText()
+        .setTopLabel('Last reminder')
+        .setText(String(row.reminder_sent_at).slice(0, 10))
+    );
+  }
+
   section.addWidget(
-    CardService.newButtonSet().addButton(
-      CardService.newTextButton()
-        .setText('Draft reminder')
-        .setTextButtonStyle(CardService.TextButtonStyle.OUTLINED)
-        .setOnClickAction(
-          CardService.newAction()
-            .setFunctionName('onDraftReminder')
-            .setParameters({
-              invoiceId: String(row.id),
-              clientEmail: String(row.client_email || ''),
-            })
-        )
-    )
+    CardService.newButtonSet()
+      .addButton(
+        CardService.newTextButton()
+          .setText('Draft reminder')
+          .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+          .setOnClickAction(
+            CardService.newAction()
+              .setFunctionName('onDraftReminder')
+              .setParameters({
+                invoiceId: String(row.id),
+                clientEmail: String(row.client_email || ''),
+              })
+          )
+      )
+      .addButton(
+        CardService.newTextButton()
+          .setText('History')
+          .setTextButtonStyle(CardService.TextButtonStyle.OUTLINED)
+          .setOnClickAction(
+            CardService.newAction()
+              .setFunctionName('onShowInvoiceHistory')
+              .setParameters({ invoiceId: String(row.id) })
+          )
+      )
   );
 }
 
@@ -932,6 +1113,9 @@ function buildHomePage_(e) {
 
     var activitySec = buildActivitySectionFromPack_(data.activity);
     if (activitySec) card.addSection(activitySec);
+
+    var remindersSec = buildRecentRemindersSectionFromPack_(data.recentReminders);
+    if (remindersSec) card.addSection(remindersSec);
 
     var overdue = invoices.filter(function (r) {
       return (r.days_overdue || 0) >= 30;
@@ -1094,6 +1278,7 @@ function buildContextualForMessage_(e) {
   return buildCardsForEmails_(emails, 'onRefreshContextualMessage', {
     messageId: String(messageId),
     fromEmail: fromEmail,
+    accessToken: access,
   });
 }
 
@@ -1151,21 +1336,57 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
   );
 
   // If this card is rendering for an OPEN message (not compose) and the message is
-  // from one of the contact emails (i.e. a reply), offer to classify it.
+  // from one of the contact emails (i.e. a reply), classify automatically and
+  // surface the result inline. Auto-classify is server-side dedup'd so we
+  // don't burn an LLM call per render — see /api/replies/classify (auto:true).
   if (replyContext && replyContext.messageId && replyContext.fromEmail) {
     var prior = fetchPriorClassificationsForThread_(replyContext.messageId);
+
+    // Cache miss: kick off auto-classification once. The result will appear on
+    // next refresh of this card. (We can't synchronously read the message body
+    // and classify here without making the open-thread render slow.)
+    if ((!prior || prior.length === 0) && replyContext.accessToken) {
+      try {
+        var bodyText = fetchMessagePlainText_(replyContext.messageId, replyContext.accessToken);
+        if (bodyText) {
+          var autoRes = paidFetch_('/api/replies/classify', {
+            method: 'post',
+            payload: JSON.stringify({
+              threadId: replyContext.messageId,
+              clientEmail: replyContext.fromEmail,
+              replyText: bodyText,
+              auto: true,
+            }),
+          });
+          if (autoRes.statusCode >= 200 && autoRes.statusCode < 300) {
+            var autoData = JSON.parse(autoRes.body);
+            prior = [{
+              classification: autoData.classification,
+              promisedPayDate: autoData.promisedPayDate,
+              suggestedAction: autoData.suggestedAction,
+              invoiceId: autoData.invoiceId,
+              createdAt: new Date().toISOString(),
+              autoScheduledFor: autoData.scheduledFor,
+            }];
+          }
+        }
+      } catch (autoErr) {
+        // ignore — fall through to manual Classify button
+      }
+    }
     var classifySec = CardService.newCardSection();
 
     if (prior && prior.length > 0) {
       var last = prior[0];
+      var bottomBits = [];
+      if (last.promisedPayDate) bottomBits.push('Promised by ' + last.promisedPayDate);
+      if (last.autoScheduledFor) bottomBits.push('Auto follow-up ' + last.autoScheduledFor);
+      if (last.suggestedAction) bottomBits.push(last.suggestedAction);
       classifySec.addWidget(
         CardService.newDecoratedText()
-          .setTopLabel('Last classified ' + (last.createdAt || '').slice(0, 10))
+          .setTopLabel('Reply read ' + (last.createdAt || '').slice(0, 10))
           .setText(classificationHeadline_(last.classification))
-          .setBottomLabel(
-            (last.promisedPayDate ? 'Promised by ' + last.promisedPayDate + ' · ' : '') +
-              (last.suggestedAction || '')
-          )
+          .setBottomLabel(bottomBits.join(' · '))
           .setWrapText(true)
       );
       if (
@@ -2008,6 +2229,45 @@ function classificationShortLabel_(c) {
     case 'paid_already': return 'Already paid?';
     case 'unrelated': return 'Unrelated';
     default: return 'Reply';
+  }
+}
+
+/**
+ * "Recent reminders" section on the home card — outgoing reminder log so the
+ * user sees what they've sent recently across all clients in one glance.
+ * Mirrors the per-contact timeline that shows on the contextual / compose
+ * card, but global instead of contact-scoped.
+ */
+function buildRecentRemindersSectionFromPack_(items) {
+  try {
+    if (!items || !items.length) return null;
+    var sec = CardService.newCardSection().setHeader('Recent reminders');
+    items.slice(0, 5).forEach(function (item, idx) {
+      if (idx > 0) sec.addWidget(CardService.newDivider());
+      var date = (item.createdAt || '').slice(0, 10);
+      var clientName = (item.invoice && item.invoice.client_name) || item.sentTo || 'Client';
+      var bottomBits = [];
+      if (item.tone) bottomBits.push(capitalize_(item.tone) + ' tone');
+      if (item.payLinkIncluded) bottomBits.push('Pay Now');
+      if (item.discountPct) bottomBits.push(item.discountPct + '% discount');
+      var widget = CardService.newDecoratedText()
+        .setTopLabel(date + ' · ' + clientName)
+        .setText(item.subject || '(no subject)')
+        .setBottomLabel(bottomBits.join(' · '))
+        .setWrapText(true);
+      // Tap to view full history for that invoice.
+      if (item.invoiceId) {
+        widget.setOnClickAction(
+          CardService.newAction()
+            .setFunctionName('onShowInvoiceHistory')
+            .setParameters({ invoiceId: String(item.invoiceId) })
+        );
+      }
+      sec.addWidget(widget);
+    });
+    return sec;
+  } catch (err) {
+    return null;
   }
 }
 
