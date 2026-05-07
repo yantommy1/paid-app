@@ -84,46 +84,13 @@ function onDraftReminder(e) {
   }
 
   try {
-    // One round-trip generates ALL three tones in parallel server-side.
-    // After this, onChangeTone swaps the visible tone locally with no network call.
-    var res = paidFetch_('/api/invoices/draft-reminder-all-tones', {
+    var res = paidFetch_('/api/invoices/draft-reminder', {
       method: 'post',
       payload: JSON.stringify({
         invoiceId: id,
         senderName: getUserDisplayName_(),
       }),
     });
-    if (res.statusCode === 404) {
-      // Older deploy without all-tones — fall back to single-tone endpoint.
-      res = paidFetch_('/api/invoices/draft-reminder', {
-        method: 'post',
-        payload: JSON.stringify({
-          invoiceId: id,
-          senderName: getUserDisplayName_(),
-        }),
-      });
-      if (res.statusCode < 200 || res.statusCode >= 300) {
-        return CardService.newActionResponseBuilder()
-          .setNotification(
-            CardService.newNotification().setText(userFacingApiError_(res.statusCode, res.body))
-          )
-          .build();
-      }
-      var fallback = JSON.parse(res.body);
-      cacheReminderDraft_(
-        id,
-        clientEmail,
-        fallback.subject || '',
-        fallback.body || '',
-        fallback.tone || 'professional',
-        !!fallback.payNowIncluded,
-        null
-      );
-      return CardService.newActionResponseBuilder()
-        .setNavigation(CardService.newNavigation().pushCard(buildDraftPreviewCard_(String(id))))
-        .setNotification(CardService.newNotification().setText('Drafted. Adjust tone below.'))
-        .build();
-    }
     if (res.statusCode < 200 || res.statusCode >= 300) {
       return CardService.newActionResponseBuilder()
         .setNotification(
@@ -132,26 +99,14 @@ function onDraftReminder(e) {
         .build();
     }
     var data = JSON.parse(res.body);
-    var autoTone = data.autoTone || 'professional';
-    var allTones = data.tones || {};
-    var picked = allTones[autoTone] || allTones.professional || allTones.friendly;
-    if (!picked) {
-      return CardService.newActionResponseBuilder()
-        .setNotification(CardService.newNotification().setText('Empty draft response.'))
-        .build();
-    }
-    cacheReminderDraft_(
-      id,
-      clientEmail,
-      picked.subject || '',
-      picked.body || '',
-      autoTone,
-      !!picked.payNowIncluded,
-      allTones
-    );
+    var subject = data.subject || '';
+    var body = data.body || '';
+    var tone = data.tone || 'professional';
+    var payNowIncluded = !!data.payNowIncluded;
+    cacheReminderDraft_(id, clientEmail, subject, body, tone, payNowIncluded);
     return CardService.newActionResponseBuilder()
       .setNavigation(CardService.newNavigation().pushCard(buildDraftPreviewCard_(String(id))))
-      .setNotification(CardService.newNotification().setText('Drafted (' + autoTone + ' tone). Tap any tone to switch.'))
+      .setNotification(CardService.newNotification().setText('Drafted (' + tone + ' tone). Adjust below.'))
       .build();
   } catch (err) {
     if (err && err.name === 'PaidAuthReconnectError') {
@@ -220,30 +175,6 @@ function onChangeTone(e) {
 
   var existing = loadReminderDraft_(id) || {};
 
-  // Fast path: if we cached all three tones from the initial draft, swap locally
-  // with zero network round-trip.
-  if (existing.allTones && existing.allTones[tone]) {
-    var pre = existing.allTones[tone];
-    cacheReminderDraft_(
-      id,
-      existing.clientEmail || '',
-      pre.subject || '',
-      pre.body || '',
-      tone,
-      !!pre.payNowIncluded,
-      existing.allTones
-    );
-    return CardService.newActionResponseBuilder()
-      .setNavigation(
-        CardService.newNavigation().updateCard(buildDraftPreviewCard_(String(id)))
-      )
-      .setNotification(
-        CardService.newNotification().setText('Switched to ' + tone + ' tone.')
-      )
-      .build();
-  }
-
-  // Slow path (cache miss / older deployment): re-draft via the single-tone endpoint.
   try {
     var res = paidFetch_('/api/invoices/draft-reminder', {
       method: 'post',
@@ -267,8 +198,7 @@ function onChangeTone(e) {
       data.subject || '',
       data.body || '',
       data.tone || tone,
-      !!data.payNowIncluded,
-      existing.allTones || null
+      !!data.payNowIncluded
     );
     return CardService.newActionResponseBuilder()
       .setNavigation(
@@ -494,7 +424,7 @@ function reminderDraftKey_(invoiceId) {
   return 'paid_reminder_draft_' + String(invoiceId);
 }
 
-function cacheReminderDraft_(invoiceId, clientEmail, subject, body, tone, payNowIncluded, allTones) {
+function cacheReminderDraft_(invoiceId, clientEmail, subject, body, tone, payNowIncluded) {
   PropertiesService.getUserProperties().setProperty(
     reminderDraftKey_(invoiceId),
     JSON.stringify({
@@ -503,9 +433,6 @@ function cacheReminderDraft_(invoiceId, clientEmail, subject, body, tone, payNow
       body: body || '',
       tone: tone || 'professional',
       payNowIncluded: !!payNowIncluded,
-      // allTones (optional) is a {friendly:{subject,body,payNowIncluded}, professional:{...}, firm:{...}}
-      // map. When present, onChangeTone swaps locally without an LLM round-trip.
-      allTones: allTones || null,
     })
   );
 }
@@ -548,37 +475,12 @@ function onOpenPaidCompose(e) {
       body = 'Please return to Paid and generate the draft again.';
     }
     var gmailDraft = GmailApp.createDraft(to, subj, body);
-
-    // Mark the invoice as sent + write reminder_logs in the background. We
-    // don't block draft creation on this — even if the merchant doesn't
-    // actually click Send in Gmail, the next draft refresh + sync will reset
-    // state. This is the same optimistic logging the (now-removed) "Open in
-    // Gmail to send" button used.
-    if (id && cached) {
-      try {
-        paidFetch_('/api/invoices/send-reminder', {
-          method: 'post',
-          payload: JSON.stringify({
-            invoiceId: id,
-            subject: subj,
-            body: body,
-            channel: 'addon',
-            tone: cached.tone || null,
-            payNowIncluded: !!cached.payNowIncluded,
-          }),
-        });
-        clearReminderDraft_(id);
-      } catch (logErr) {
-        // Non-fatal — the draft is in Gmail; tracking just won't update.
-      }
-    }
-
     return CardService.newComposeActionResponseBuilder().setGmailDraft(gmailDraft).build();
   } catch (err) {
     return CardService.newActionResponseBuilder()
       .setNotification(
         CardService.newNotification().setText(
-          'Edit in Gmail is only available on desktop.'
+          'Edit in Gmail is only available on desktop. Use Open in Gmail to send instead.'
         )
       )
       .build();
@@ -592,7 +494,7 @@ function onEditInGmailUnavailable(e) {
   return CardService.newActionResponseBuilder()
     .setNotification(
       CardService.newNotification().setText(
-        'Edit in Gmail is only available on desktop. Try again from a desktop browser.'
+        'Edit in Gmail is only available on desktop. Use Open in Gmail to send instead.'
       )
     )
     .build();
@@ -687,16 +589,21 @@ function buildDraftPreviewCard_(invoiceId) {
   toneSec.addWidget(toneRow);
   card.addSection(toneSec);
 
-  // Single "Edit in Gmail" action — creates a real Gmail draft via CardService
-  // compose action so the user reviews + sends in Gmail directly. The compose
-  // action handler also fires the backend mark-as-sent / log call so we keep
-  // tracking even though the user hits Send in Gmail.
-  var btnRow = CardService.newButtonSet();
+  var btnRow = CardService.newButtonSet().addButton(
+    CardService.newTextButton()
+      .setText('Open in Gmail to send')
+      .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+      .setOnClickAction(
+        CardService.newAction()
+          .setFunctionName('onSendReminder')
+          .setParameters({ invoiceId: String(invoiceId) })
+      )
+  );
   try {
     btnRow.addButton(
       CardService.newTextButton()
         .setText('Edit in Gmail')
-        .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+        .setTextButtonStyle(CardService.TextButtonStyle.OUTLINED)
         .setComposeAction(
           CardService.newAction()
             .setFunctionName('onOpenPaidCompose')
@@ -708,7 +615,7 @@ function buildDraftPreviewCard_(invoiceId) {
     btnRow.addButton(
       CardService.newTextButton()
         .setText('Edit in Gmail')
-        .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+        .setTextButtonStyle(CardService.TextButtonStyle.OUTLINED)
         .setOnClickAction(CardService.newAction().setFunctionName('onEditInGmailUnavailable'))
     );
   }
@@ -961,17 +868,20 @@ function buildHomePage_(e) {
     }
     card.addSection(listSec);
 
-    // Footer: just the bulk-review action. Developer plumbing (API base URL,
-    // API key) lives behind the auth-failure recovery card now — customers
-    // don't see a Settings button on the front of the sidebar.
     var foot = CardService.newCardSection();
     foot.addWidget(
       CardService.newButtonSet()
         .addButton(
           CardService.newTextButton()
-            .setText('Review all reminders')
+            .setText('Send all reminders')
             .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
             .setOnClickAction(CardService.newAction().setFunctionName('onQueueAllReminders'))
+        )
+        .addButton(
+          CardService.newTextButton()
+            .setText('Settings')
+            .setTextButtonStyle(CardService.TextButtonStyle.TEXT)
+            .setOnClickAction(CardService.newAction().setFunctionName('onOpenSettings'))
         )
     );
     card.addSection(foot);

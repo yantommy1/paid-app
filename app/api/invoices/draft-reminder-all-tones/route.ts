@@ -13,15 +13,20 @@ const BodySchema = z.object({
   discountPct: z.number().min(0).max(50).nullable().optional(),
   paymentPlanEnabled: z.boolean().nullable().optional(),
   disablePayLink: z.boolean().optional(),
+  forceRefresh: z.boolean().optional(),
 });
 
+const CACHE_FRESHNESS_MS = 24 * 60 * 60 * 1000; // 24h
+
 /**
- * Generate all three tone variants in one request so the Gmail Add-On can
- * cache them and let the user toggle tone without another network round-trip.
+ * Cache-first all-tones drafting.
  *
- * The three Anthropic calls run in parallel via Promise.all, so wall-clock
- * time is ~max(t_friendly, t_professional, t_firm) which is roughly the same
- * as a single draft. That cuts add-on tone-switching latency to zero.
+ * 1) If the invoice has cached `draft_all_tones` less than 24h old, return it
+ *    instantly (no LLM call). This is the hot path users hit all day after
+ *    the daily cron has pre-warmed the cache.
+ * 2) Otherwise compute fresh, store on the invoice row, return.
+ *
+ * The 3 Anthropic calls (one per tone) still run in parallel on the cold path.
  */
 export async function POST(request: NextRequest) {
   const ctx = await requireUserFromRequest(request);
@@ -45,10 +50,22 @@ export async function POST(request: NextRequest) {
     .single();
   if (error || !inv) return notFound("Invoice not found");
 
+  // Cache-first.
+  if (
+    !parsed.data.forceRefresh &&
+    inv.draft_all_tones &&
+    inv.draft_all_tones_at &&
+    Date.now() - new Date(inv.draft_all_tones_at).getTime() < CACHE_FRESHNESS_MS
+  ) {
+    return NextResponse.json({
+      autoTone: inv.draft_auto_tone ?? "professional",
+      tones: inv.draft_all_tones,
+      cacheHit: true,
+    });
+  }
+
   const senderName = parsed.data.senderName ?? getUserDisplayName(ctx.user);
 
-  // Compute the auto-picked tone once (uses settings + client history).
-  // We resolve settings here so each per-tone build doesn't re-query.
   const { data: settingsRow } = await supabase
     .from("settings")
     .select("tone_default, tone_auto_adjust")
@@ -84,26 +101,40 @@ export async function POST(request: NextRequest) {
     );
 
     const [friendly, professional, firm] = results;
+    const tonesPayload = {
+      friendly: {
+        subject: friendly.subject,
+        body: friendly.body,
+        payNowIncluded: friendly.payNowIncluded,
+      },
+      professional: {
+        subject: professional.subject,
+        body: professional.body,
+        payNowIncluded: professional.payNowIncluded,
+      },
+      firm: {
+        subject: firm.subject,
+        body: firm.body,
+        payNowIncluded: firm.payNowIncluded,
+      },
+    };
+
+    // Persist to cache so the next click is instant. Best-effort; don't block
+    // the response on the write.
+    void supabase
+      .from("invoices")
+      .update({
+        draft_all_tones: tonesPayload,
+        draft_all_tones_at: new Date().toISOString(),
+        draft_auto_tone: autoTone,
+      })
+      .eq("id", inv.id)
+      .then(() => undefined);
 
     return NextResponse.json({
       autoTone,
-      tones: {
-        friendly: {
-          subject: friendly.subject,
-          body: friendly.body,
-          payNowIncluded: friendly.payNowIncluded,
-        },
-        professional: {
-          subject: professional.subject,
-          body: professional.body,
-          payNowIncluded: professional.payNowIncluded,
-        },
-        firm: {
-          subject: firm.subject,
-          body: firm.body,
-          payNowIncluded: firm.payNowIncluded,
-        },
-      },
+      tones: tonesPayload,
+      cacheHit: false,
     });
   } catch (e) {
     return serverError(e instanceof Error ? e.message : "Draft failed");
