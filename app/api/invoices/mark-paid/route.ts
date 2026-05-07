@@ -7,6 +7,7 @@ import { z } from "zod";
 
 const BodySchema = z.object({
   invoiceId: z.string().uuid(),
+  paymentMethod: z.enum(["manual", "ach", "check", "other"]).optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -31,12 +32,15 @@ export async function POST(request: NextRequest) {
     const result = await markInvoicePaidWithFees(supabase, {
       userId: ctx.user.id,
       invoiceId: parsed.data.invoiceId,
+      paymentMethod: parsed.data.paymentMethod ?? "manual",
     });
     return NextResponse.json({
       ok: result.ok,
       feePercentage: result.feePercentage,
       feeAmount: result.feeAmount,
       skipped: result.skipped,
+      quickbooksPushed: result.quickbooksPushed,
+      quickbooksError: result.quickbooksError,
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed";

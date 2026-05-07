@@ -1,18 +1,26 @@
 import { feePercentFromSettings } from "@/lib/fees/contingency";
+import { pushPaymentToQuickBooks } from "@/lib/quickbooks/push-payment";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
  * Marks an invoice paid and records contingency fee (60+/90+ tiers) from settings.
+ * Also pushes a Payment record to QuickBooks (idempotent — see push-payment.ts).
  * Idempotent if the invoice is already paid.
  */
 export async function markInvoicePaidWithFees(
   supabase: SupabaseClient,
-  params: { userId: string; invoiceId: string }
+  params: {
+    userId: string;
+    invoiceId: string;
+    paymentMethod?: "stripe" | "manual" | "ach" | "check" | "other";
+  }
 ): Promise<{
   ok: boolean;
   feePercentage: number;
   feeAmount: number;
   skipped?: "already_paid";
+  quickbooksPushed?: boolean;
+  quickbooksError?: string;
 }> {
   const { data: inv, error: invErr } = await supabase
     .from("invoices")
@@ -74,5 +82,26 @@ export async function markInvoicePaidWithFees(
     }
   }
 
-  return { ok: true, feePercentage: pct, feeAmount: amt };
+  // Push the payment to QuickBooks so the invoice closes there too.
+  // Failure does NOT roll back the local update — the cron / next webhook can retry.
+  let quickbooksPushed = false;
+  let quickbooksError: string | undefined;
+  try {
+    const pushResult = await pushPaymentToQuickBooks(supabase, {
+      userId: params.userId,
+      invoiceId: inv.id,
+      amountUsd: Number(inv.amount),
+      paymentMethod: params.paymentMethod ?? "stripe",
+      paidAt: now,
+    });
+    if (pushResult.ok && "paymentId" in pushResult && pushResult.paymentId) {
+      quickbooksPushed = true;
+    } else if (!pushResult.ok) {
+      quickbooksError = pushResult.error;
+    }
+  } catch (e) {
+    quickbooksError = e instanceof Error ? e.message : "QB push failed";
+  }
+
+  return { ok: true, feePercentage: pct, feeAmount: amt, quickbooksPushed, quickbooksError };
 }

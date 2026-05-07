@@ -176,6 +176,7 @@ export async function POST(request: NextRequest) {
           await markInvoicePaidWithFees(admin, {
             userId: invoiceUserId,
             invoiceId,
+            paymentMethod: "stripe",
           });
         } catch {}
       }

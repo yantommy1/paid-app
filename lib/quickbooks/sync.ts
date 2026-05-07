@@ -10,6 +10,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 export type InvoiceUpsertRow = {
   user_id: string;
   quickbooks_invoice_id: string;
+  quickbooks_customer_id: string | null;
   client_name: string;
   client_email: string;
   amount: number;
@@ -127,6 +128,7 @@ export async function mapInvoiceToRow(
   return {
     user_id: userId,
     quickbooks_invoice_id: inv.Id,
+    quickbooks_customer_id: inv.CustomerRef?.value ?? null,
     client_name: inv.CustomerRef?.name ?? "Client",
     client_email: email.toLowerCase(),
     amount: balance,
