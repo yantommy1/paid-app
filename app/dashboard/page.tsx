@@ -1,5 +1,7 @@
 import { Nav } from "@/components/Nav";
 import { DashboardPastDueBanner } from "@/components/dashboard/DashboardPastDueBanner";
+import { DashboardQuickBooksSyncBanner } from "@/components/dashboard/DashboardQuickBooksSyncBanner";
+import { DashboardRecentReplies } from "@/components/dashboard/DashboardRecentReplies";
 import { DashboardROIHero } from "@/components/dashboard/DashboardROIHero";
 import { OverdueInvoicesPanel } from "@/components/OverdueInvoicesPanel";
 import { getUserDisplayName } from "@/lib/auth/display-name";
@@ -32,10 +34,15 @@ export default async function DashboardPage({
   const { data: profile } = await supabase
     .from("users")
     .select(
-      "onboarding_completed, subscription_status, trial_ends_at, subscription_ends_at"
+      "onboarding_completed, subscription_status, trial_ends_at, subscription_ends_at, quickbooks_sync_error, quickbooks_sync_error_at, quickbooks_token"
     )
     .eq("id", user.id)
     .maybeSingle();
+
+  const qbConnected = profile?.quickbooks_token != null;
+  const qbSyncError = (profile?.quickbooks_sync_error as string | null) ?? null;
+  const qbSyncErrorAt =
+    (profile?.quickbooks_sync_error_at as string | null) ?? null;
 
   const subStatus = (profile?.subscription_status as string | null) ?? null;
 
@@ -66,6 +73,13 @@ export default async function DashboardPage({
           </div>
         )}
         {showPastDue && <DashboardPastDueBanner />}
+
+        {qbConnected && qbSyncError && (
+          <DashboardQuickBooksSyncBanner
+            message={qbSyncError}
+            occurredAt={qbSyncErrorAt}
+          />
+        )}
 
         <DashboardROIHero />
 
@@ -98,6 +112,8 @@ export default async function DashboardPage({
         </section>
 
         <OverdueInvoicesPanel />
+
+        <DashboardRecentReplies />
       </div>
     </main>
   );

@@ -1,5 +1,6 @@
 import { markInvoicePaidWithFees } from "@/lib/fees/mark-invoice-paid";
 import { serverError } from "@/lib/api/errors";
+import { logError, logInfo } from "@/lib/observability/log";
 import { getStripe } from "@/lib/stripe/connect";
 import {
   markSubscriptionCanceled,
@@ -164,7 +165,25 @@ export async function POST(request: NextRequest) {
               throw new Error(trialUpdateErr.message);
             }
             await sendMagicLinkToUser(checkoutEmail);
-          } catch {}
+            logInfo({
+              route: "stripe.webhook",
+              event: "saas_subscription.activated",
+              stripeEventId: event.id,
+              userId,
+            });
+          } catch (err) {
+            logError({
+              route: "stripe.webhook",
+              event: "saas_subscription.activate_failed",
+              stripeEventId: event.id,
+              checkoutEmail,
+              subId,
+              customerId,
+              err,
+            });
+            // 500 → Stripe retries (up to 3 days, exponential backoff).
+            return serverError("Subscription activation failed; will retry.", 500);
+          }
         }
         break;
       }
@@ -178,7 +197,24 @@ export async function POST(request: NextRequest) {
             invoiceId,
             paymentMethod: "stripe",
           });
-        } catch {}
+          logInfo({
+            route: "stripe.webhook",
+            event: "checkout.invoice_paid",
+            stripeEventId: event.id,
+            userId: invoiceUserId,
+            invoiceId,
+          });
+        } catch (err) {
+          logError({
+            route: "stripe.webhook",
+            event: "checkout.invoice_paid_failed",
+            stripeEventId: event.id,
+            userId: invoiceUserId,
+            invoiceId,
+            err,
+          });
+          return serverError("Invoice mark-paid failed; will retry.", 500);
+        }
       }
       break;
     }
@@ -190,14 +226,32 @@ export async function POST(request: NextRequest) {
           : subscription.customer.id;
       try {
         await updateUserSubscriptionByCustomerId(customerId, subscription);
-      } catch {}
+      } catch (err) {
+        logError({
+          route: "stripe.webhook",
+          event: "subscription.updated_failed",
+          stripeEventId: event.id,
+          customerId,
+          err,
+        });
+        return serverError("Subscription sync failed; will retry.", 500);
+      }
       break;
     }
     case "customer.subscription.deleted": {
       const subscription = event.data.object as Stripe.Subscription;
       try {
         await markSubscriptionCanceled(subscription.id);
-      } catch {}
+      } catch (err) {
+        logError({
+          route: "stripe.webhook",
+          event: "subscription.deleted_failed",
+          stripeEventId: event.id,
+          subscriptionId: subscription.id,
+          err,
+        });
+        return serverError("Subscription cancel sync failed; will retry.", 500);
+      }
       break;
     }
     case "payment_intent.succeeded": {
@@ -210,7 +264,24 @@ export async function POST(request: NextRequest) {
             userId,
             invoiceId,
           });
-        } catch {}
+          logInfo({
+            route: "stripe.webhook",
+            event: "payment_intent.invoice_paid",
+            stripeEventId: event.id,
+            userId,
+            invoiceId,
+          });
+        } catch (err) {
+          logError({
+            route: "stripe.webhook",
+            event: "payment_intent.invoice_paid_failed",
+            stripeEventId: event.id,
+            userId,
+            invoiceId,
+            err,
+          });
+          return serverError("Invoice mark-paid failed; will retry.", 500);
+        }
       }
       break;
     }

@@ -12,12 +12,19 @@
  */
 
 /** Deployed add-on version (bump when publishing a new deployment). */
-var VERSION = '1.0.1';
+var VERSION = '1.1.0';
 
 var PROP_API = 'PAID_API_BASE';
 var PROP_API_KEY = 'PAID_API_KEY';
 var PROP_API_KEY_EXPIRES_AT = 'PAID_API_KEY_EXPIRES_AT';
 var PROP_USER_DISPLAY_NAME = 'PAID_USER_DISPLAY_NAME';
+
+/**
+ * Default API base — Paid is single-tenant SaaS at paid-app.com. The legacy
+ * "paste both URL and key" flow stays available for self-hosters via
+ * onSavePaidSettings, but new installs should never have to type the URL.
+ */
+var DEFAULT_API_BASE = 'https://paid-app.com';
 
 /** Cohort dot swatches (Linear-style accents) */
 var DOT_90 = 'https://placehold.co/10x10/dc2626/dc2626.png';
@@ -1068,6 +1075,13 @@ function clearHomePackCache_() {
 function buildHomePage_(e) {
   var card = CardService.newCardBuilder();
 
+  if (!getApiKey_()) {
+    // Try identity-based auth first — for users who already signed up at
+    // paid-app.com with the same Google account, this Just Works with no
+    // paste step. Falls through to the connect card on failure.
+    tryIdentityExchange_();
+  }
+
   if (!getApiKey_() || !getApiBase_()) {
     return card
       .setHeader(CardService.newCardHeader().setTitle('Paid').setSubtitle('Connect to continue - v' + VERSION))
@@ -1219,22 +1233,37 @@ function buildSettingsSection_() {
   var section = CardService.newCardSection()
     .addWidget(
       CardService.newTextParagraph().setText(
-        'Sign in at paid-app.com, then go to paid-app.com/api/auth/api-key to get your key.'
+        '<b>Connect with your Google account</b><br>' +
+          'If you already signed up at paid-app.com with this email, one tap connects you. No keys to copy.'
       )
     )
     .addWidget(
       CardService.newButtonSet().addButton(
         CardService.newTextButton()
-          .setText('Open key page')
-          .setTextButtonStyle(CardService.TextButtonStyle.TEXT)
-          .setOpenLink(CardService.newOpenLink().setUrl('https://paid-app.com/api/auth/api-key'))
+          .setText('Connect with Google')
+          .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+          .setOnClickAction(CardService.newAction().setFunctionName('onIdentityConnect'))
       )
     )
     .addWidget(CardService.newDivider())
     .addWidget(
+      CardService.newTextParagraph().setText(
+        '<b>Or paste a connection key</b><br>' +
+          'Sign in at paid-app.com → Settings → "Generate and copy key", then paste below.'
+      )
+    )
+    .addWidget(
+      CardService.newButtonSet().addButton(
+        CardService.newTextButton()
+          .setText('Open settings page')
+          .setTextButtonStyle(CardService.TextButtonStyle.TEXT)
+          .setOpenLink(CardService.newOpenLink().setUrl('https://paid-app.com/settings'))
+      )
+    )
+    .addWidget(
       CardService.newTextInput()
         .setFieldName('api_base')
-        .setTitle('API base URL')
+        .setTitle('API base URL (optional)')
         .setHint('https://paid-app.com')
     )
     .addWidget(
@@ -1251,6 +1280,37 @@ function buildSettingsSection_() {
   return section;
 }
 
+/**
+ * On-demand handler for "Connect with Google" — distinguishes signed-up
+ * users (success → home card) from non-customers (NO_ACCOUNT → notify with
+ * a sign-up nudge).
+ */
+function onIdentityConnect(e) {
+  var r = exchangeIdentityDetailed_();
+  if (r.ok) {
+    return CardService.newActionResponseBuilder()
+      .setNavigation(CardService.newNavigation().updateCard(buildHomePage_(e)))
+      .setNotification(CardService.newNotification().setText('Connected with Google.'))
+      .build();
+  }
+  if (r.reason === 'no_account') {
+    return CardService.newActionResponseBuilder()
+      .setNotification(
+        CardService.newNotification().setText(
+          'No Paid account for this Google address. Sign up at paid-app.com first.'
+        )
+      )
+      .build();
+  }
+  return CardService.newActionResponseBuilder()
+    .setNotification(
+      CardService.newNotification().setText(
+        'Could not connect with Google. Try the connection key below.'
+      )
+    )
+    .build();
+}
+
 function onReconnectFromError(e) {
   return CardService.newActionResponseBuilder()
     .setNavigation(CardService.newNavigation().updateCard(buildSettingsCard_(e)))
@@ -1258,6 +1318,9 @@ function onReconnectFromError(e) {
 }
 
 function buildContextualForMessage_(e) {
+  if (!getApiKey_()) {
+    tryIdentityExchange_();
+  }
   if (!getApiKey_() || !getApiBase_()) {
     var c = CardService.newCardBuilder().setHeader(CardService.newCardHeader().setTitle('Paid'));
     c.addSection(buildSettingsSection_());
@@ -1283,6 +1346,9 @@ function buildContextualForMessage_(e) {
 }
 
 function buildContextualForCompose_(e) {
+  if (!getApiKey_()) {
+    tryIdentityExchange_();
+  }
   if (!getApiKey_() || !getApiBase_()) {
     var c = CardService.newCardBuilder().setHeader(CardService.newCardHeader().setTitle('Paid'));
     c.addSection(buildSettingsSection_());
@@ -1899,13 +1965,127 @@ function buildDiagnosticCard_(step, kind, msg, refreshFunctionName) {
 }
 
 function getApiBase_() {
-  return trimSlash_(
+  // Fall back to the published default so a fresh install never has to type
+  // the URL. Self-hosters can override via the Settings card or
+  // PropertiesService directly.
+  var stored = trimSlash_(
     PropertiesService.getUserProperties().getProperty(PROP_API) || ''
   );
+  return stored || DEFAULT_API_BASE;
 }
 
 function getApiKey_() {
   return PropertiesService.getUserProperties().getProperty(PROP_API_KEY) || '';
+}
+
+/**
+ * Try to obtain (or refresh) an API key using the active Google user's
+ * identity. Returns true on success — the key is stored in UserProperties
+ * exactly as the manual paste flow would. Returns false if the user has no
+ * Paid account, or if any step fails (network, token, lookup).
+ *
+ * Safe to call before each home render when no key is set; ScriptApp's
+ * identity token is cached by the runtime, so this is essentially a single
+ * outbound HTTPS request to /api/gmail-addon/exchange when the user is
+ * already on Paid.
+ */
+function tryIdentityExchange_() {
+  var base = getApiBase_();
+  if (!base) return false;
+  var idToken;
+  try {
+    idToken = ScriptApp.getIdentityToken();
+  } catch (err) {
+    return false;
+  }
+  if (!idToken) return false;
+
+  var resp;
+  try {
+    resp = UrlFetchApp.fetch(base + '/api/gmail-addon/exchange', {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { Authorization: 'Bearer ' + idToken },
+      payload: '{}',
+      muteHttpExceptions: true,
+      timeout: 10000,
+    });
+  } catch (netErr) {
+    return false;
+  }
+  var code = resp.getResponseCode();
+  if (code === 404) {
+    // No matching Paid account — caller's UX path is to invite the user to
+    // sign up at paid-app.com first. Leave properties untouched.
+    return false;
+  }
+  if (code < 200 || code >= 300) {
+    return false;
+  }
+  try {
+    var j = JSON.parse(resp.getContentText());
+    if (!j || !j.api_key) return false;
+    PropertiesService.getUserProperties().setProperty(PROP_API_KEY, String(j.api_key));
+    setApiKeyExpiry_(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    if (!PropertiesService.getUserProperties().getProperty(PROP_API)) {
+      PropertiesService.getUserProperties().setProperty(PROP_API, DEFAULT_API_BASE);
+    }
+    return true;
+  } catch (parseErr) {
+    return false;
+  }
+}
+
+/**
+ * Same as tryIdentityExchange_ but returns the parsed response so the
+ * connect card can distinguish "no Paid account yet" (NO_ACCOUNT) from
+ * generic failure. The on-demand "Connect with Google" button uses this to
+ * route the user to sign up if needed.
+ */
+function exchangeIdentityDetailed_() {
+  var base = getApiBase_();
+  if (!base) return { ok: false, reason: 'no_base' };
+  var idToken;
+  try {
+    idToken = ScriptApp.getIdentityToken();
+  } catch (err) {
+    return { ok: false, reason: 'no_identity_token' };
+  }
+  if (!idToken) return { ok: false, reason: 'no_identity_token' };
+
+  var resp;
+  try {
+    resp = UrlFetchApp.fetch(base + '/api/gmail-addon/exchange', {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { Authorization: 'Bearer ' + idToken },
+      payload: '{}',
+      muteHttpExceptions: true,
+      timeout: 10000,
+    });
+  } catch (netErr) {
+    return { ok: false, reason: 'network' };
+  }
+  var code = resp.getResponseCode();
+  var body = resp.getContentText();
+  if (code === 404) {
+    return { ok: false, reason: 'no_account', body: body };
+  }
+  if (code < 200 || code >= 300) {
+    return { ok: false, reason: 'http_' + code, body: body };
+  }
+  try {
+    var j = JSON.parse(body);
+    if (!j || !j.api_key) return { ok: false, reason: 'no_key_in_response' };
+    PropertiesService.getUserProperties().setProperty(PROP_API_KEY, String(j.api_key));
+    setApiKeyExpiry_(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    if (!PropertiesService.getUserProperties().getProperty(PROP_API)) {
+      PropertiesService.getUserProperties().setProperty(PROP_API, DEFAULT_API_BASE);
+    }
+    return { ok: true };
+  } catch (parseErr) {
+    return { ok: false, reason: 'parse_error' };
+  }
 }
 
 function getUserDisplayName_() {

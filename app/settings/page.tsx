@@ -39,6 +39,7 @@ export default async function SettingsPage() {
       <div className="mx-auto max-w-[1200px] px-6 py-12">
         <SettingsClient
           displayName={getUserDisplayName(user)}
+          userEmail={user.email ?? ""}
           quickbooksConnected={profile?.quickbooks_token != null}
           gmailConnected={profile?.gmail_token != null}
           quickbooksRealmId={realmId.length > 0 ? realmId : null}

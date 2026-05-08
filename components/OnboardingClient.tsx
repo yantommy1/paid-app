@@ -69,6 +69,58 @@ export function OnboardingClient({ initialStep, displayName, quickbooksConnected
     };
   }, []);
 
+  // Hydrate payment-method preferences from existing settings so a returning
+  // user sees their previous toggles, not the defaults. (Hydration drops both
+  // back to false only if the user has explicitly turned them off before.)
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/settings")
+      .then((r) => (r.ok ? r.json() : null))
+      .then(
+        (
+          j: {
+            settings?: { accept_card?: boolean | null; accept_ach?: boolean | null };
+          } | null
+        ) => {
+          if (cancelled || !j?.settings) return;
+          if (typeof j.settings.accept_card === "boolean") {
+            setAcceptCard(j.settings.accept_card);
+          }
+          if (typeof j.settings.accept_ach === "boolean") {
+            setAcceptAch(j.settings.accept_ach);
+          }
+        }
+      )
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /**
+   * Write the payment-method toggle straight through to /api/settings the
+   * moment the user clicks it. Prior version only persisted from inside
+   * startStripeConnect(), so a user who skipped Step 4 (clicked Finish setup
+   * on Step 5 without ever pressing Connect Stripe) lost their selection —
+   * and the next Stripe-connection attempt from /settings would use the
+   * defaults (both true). With this, "skip" preserves intent.
+   */
+  async function persistPaymentMethods(next: { card?: boolean; ach?: boolean }) {
+    try {
+      await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(typeof next.card === "boolean" ? { accept_card: next.card } : {}),
+          ...(typeof next.ach === "boolean" ? { accept_ach: next.ach } : {}),
+        }),
+      });
+    } catch {
+      // Non-fatal — setting persists in local state for this session, and
+      // /api/settings is also called from startStripeConnect as a fallback.
+    }
+  }
+
   useEffect(() => {
     setQbConn(quickbooksConnected);
     setGmConn(gmailConnected);
@@ -185,6 +237,11 @@ export function OnboardingClient({ initialStep, displayName, quickbooksConnected
     setCompleting(true);
     setCompleteError(null);
     try {
+      // Last-chance persist of payment-method preferences before we leave the
+      // onboarding flow. Per-toggle PATCH already covered the happy path; this
+      // is a belt-and-suspenders save for browsers that drop fetches mid-tab.
+      await persistPaymentMethods({ card: acceptCard, ach: acceptAch });
+
       const res = await fetch("/api/onboarding/complete", { method: "POST" });
       const j = (await res.json()) as { error?: string; nextPath?: string };
       if (!res.ok) {
@@ -388,7 +445,11 @@ export function OnboardingClient({ initialStep, displayName, quickbooksConnected
                     <input
                       type="checkbox"
                       checked={acceptCard}
-                      onChange={(e) => setAcceptCard(e.target.checked)}
+                      onChange={(e) => {
+                        const next = e.target.checked;
+                        setAcceptCard(next);
+                        void persistPaymentMethods({ card: next });
+                      }}
                     />
                     Credit / debit card{" "}
                     <span className="text-xs text-[#6B6B6B]">(2.9% + $0.30)</span>
@@ -397,7 +458,11 @@ export function OnboardingClient({ initialStep, displayName, quickbooksConnected
                     <input
                       type="checkbox"
                       checked={acceptAch}
-                      onChange={(e) => setAcceptAch(e.target.checked)}
+                      onChange={(e) => {
+                        const next = e.target.checked;
+                        setAcceptAch(next);
+                        void persistPaymentMethods({ ach: next });
+                      }}
                     />
                     ACH bank debit{" "}
                     <span className="text-xs text-[#6B6B6B]">(0.8%, capped at $5)</span>

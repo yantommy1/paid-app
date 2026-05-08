@@ -1,5 +1,5 @@
-import { resolveBookkeeperToken } from "@/lib/bookkeeper/token";
-import { serverError, unauthorized, notFound } from "@/lib/api/errors";
+import { resolveBookkeeperOrErrorResponse } from "@/lib/bookkeeper/route-helpers";
+import { serverError, notFound } from "@/lib/api/errors";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
@@ -24,8 +24,9 @@ export async function POST(
   { params }: { params: Promise<{ token: string }> }
 ) {
   const { token } = await params;
-  const ctx = await resolveBookkeeperToken(token);
-  if (!ctx) return unauthorized();
+  const r = await resolveBookkeeperOrErrorResponse(token);
+  if (!r.ok) return r.response;
+  const ctx = r.ctx;
   if (ctx.permissions !== "send") {
     return serverError("This bookkeeper link is read-only.", 403);
   }

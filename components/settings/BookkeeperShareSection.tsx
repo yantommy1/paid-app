@@ -150,31 +150,52 @@ export function BookkeeperShareSection() {
           <p className="mt-3 text-sm text-[#6B6B6B]">No active invites yet.</p>
         ) : (
           <ul className="mt-3 divide-y divide-[#E5E5E5] border border-[#E5E5E5]">
-            {invites.map((inv) => (
-              <li key={inv.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-                <div>
-                  <p className="text-sm text-[#0D0D0D]">{inv.bookkeeper_email}</p>
-                  <p className="text-xs text-[#6B6B6B]">
-                    {inv.permissions === "send" ? "Review + send" : "Read only"}
-                    {inv.revoked_at
-                      ? " · revoked"
-                      : inv.accepted_at
-                        ? ` · last access ${inv.last_access_at ?? inv.accepted_at}`
-                        : " · pending"}
-                  </p>
-                </div>
-                {!inv.revoked_at && (
-                  <button
-                    type="button"
-                    onClick={() => void revoke(inv.id)}
-                    disabled={busy}
-                    className="border border-red-600 px-3 py-1 text-xs text-red-600 disabled:opacity-60"
-                  >
-                    Revoke
-                  </button>
-                )}
-              </li>
-            ))}
+            {invites.map((inv) => {
+              const expiresMs = inv.expires_at ? new Date(inv.expires_at).getTime() : 0;
+              const daysToExpiry = expiresMs
+                ? Math.floor((expiresMs - Date.now()) / 86400000)
+                : null;
+              const isExpired = !inv.revoked_at && daysToExpiry != null && daysToExpiry < 0;
+              const isExpiringSoon =
+                !inv.revoked_at && daysToExpiry != null && daysToExpiry >= 0 && daysToExpiry <= 7;
+              return (
+                <li key={inv.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                  <div>
+                    <p className="text-sm text-[#0D0D0D]">{inv.bookkeeper_email}</p>
+                    <p className="text-xs text-[#6B6B6B]">
+                      {inv.permissions === "send" ? "Review + send" : "Read only"}
+                      {inv.revoked_at
+                        ? " · revoked"
+                        : isExpired
+                          ? " · expired"
+                          : inv.accepted_at
+                            ? ` · last access ${inv.last_access_at ?? inv.accepted_at}`
+                            : " · pending"}
+                    </p>
+                    {isExpiringSoon && (
+                      <p className="mt-1 text-xs font-medium text-amber-700">
+                        Expires in {daysToExpiry} day{daysToExpiry === 1 ? "" : "s"} — generate a new link soon.
+                      </p>
+                    )}
+                    {isExpired && (
+                      <p className="mt-1 text-xs font-medium text-red-600">
+                        Expired — revoke and create a new link to restore access.
+                      </p>
+                    )}
+                  </div>
+                  {!inv.revoked_at && (
+                    <button
+                      type="button"
+                      onClick={() => void revoke(inv.id)}
+                      disabled={busy}
+                      className="border border-red-600 px-3 py-1 text-xs text-red-600 disabled:opacity-60"
+                    >
+                      {isExpired ? "Remove" : "Revoke"}
+                    </button>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>

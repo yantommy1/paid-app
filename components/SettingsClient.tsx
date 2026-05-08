@@ -4,6 +4,8 @@ import { BillingSection } from "@/components/settings/BillingSection";
 import { ReminderPreferencesSection } from "@/components/settings/ReminderPreferencesSection";
 import { BookkeeperShareSection } from "@/components/settings/BookkeeperShareSection";
 import { PaymentsSection } from "@/components/settings/PaymentsSection";
+import { DeleteAccountSection } from "@/components/settings/DeleteAccountSection";
+import { createClient } from "@/lib/supabase/browser";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -13,6 +15,7 @@ const GMAIL_ADDON_INSTALL_URL =
 
 type Props = {
   displayName: string;
+  userEmail: string;
   quickbooksConnected: boolean;
   gmailConnected: boolean;
   quickbooksRealmId: string | null;
@@ -28,6 +31,7 @@ function StatusDot({ connected }: { connected: boolean }) {
 
 export function SettingsClient({
   displayName,
+  userEmail,
   quickbooksConnected: qbInitial,
   gmailConnected: gmInitial,
   quickbooksRealmId,
@@ -259,6 +263,21 @@ export function SettingsClient({
           </p>
         )}
       </section>
+
+      <DeleteAccountSection
+        userEmail={userEmail}
+        onDeleted={async () => {
+          // Sign the user out cleanly so the (now-invalid) cookie doesn't
+          // linger and trigger 401 loops on the next page load.
+          try {
+            await createClient().auth.signOut();
+          } catch {
+            // Ignore — the auth user is already gone server-side.
+          }
+          router.push("/");
+          router.refresh();
+        }}
+      />
     </div>
   );
 }
