@@ -12,7 +12,7 @@
  */
 
 /** Deployed add-on version (bump when publishing a new deployment). */
-var VERSION = '1.3.3';
+var VERSION = '1.3.4';
 
 var PROP_API = 'PAID_API_BASE';
 var PROP_API_KEY = 'PAID_API_KEY';
@@ -1212,6 +1212,12 @@ function appendInvoiceBlock_(section, row, withDivider) {
       )
   );
 
+  // Two buttons per row, with intentional visual weight difference:
+  //   "Draft reminder" — FILLED, the primary action
+  //   "History" — TEXT (link-style), discoverable but visually quiet so
+  //               it doesn't compete with the primary button
+  // The row body is ALSO tappable for History (set above) — power users
+  // can tap anywhere, less-confident users see the explicit button.
   section.addWidget(
     CardService.newButtonSet()
       .addButton(
@@ -1225,6 +1231,16 @@ function appendInvoiceBlock_(section, row, withDivider) {
                 invoiceId: String(row.id),
                 clientEmail: String(row.client_email || ''),
               })
+          )
+      )
+      .addButton(
+        CardService.newTextButton()
+          .setText('History')
+          .setTextButtonStyle(CardService.TextButtonStyle.TEXT)
+          .setOnClickAction(
+            CardService.newAction()
+              .setFunctionName('onShowInvoiceHistory')
+              .setParameters({ invoiceId: String(row.id) })
           )
       )
   );
