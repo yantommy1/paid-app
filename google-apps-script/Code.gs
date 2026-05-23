@@ -12,7 +12,7 @@
  */
 
 /** Deployed add-on version (bump when publishing a new deployment). */
-var VERSION = '1.3.0';
+var VERSION = '1.3.2';
 
 var PROP_API = 'PAID_API_BASE';
 var PROP_API_KEY = 'PAID_API_KEY';
@@ -331,6 +331,48 @@ function getOwnEmailLower_() {
 }
 
 /**
+ * ISO timestamp → relative-friendly time string for log rows:
+ *   - "2:15 PM" if today
+ *   - "Yesterday 2:15 PM" if yesterday
+ *   - "Mon 2:15 PM" if within last 7 days
+ *   - "May 23" if older
+ * This gives the History/Reminders log a real timeline feel and
+ * disambiguates the 4 "May 23" rows by showing each send's actual time.
+ */
+function formatTimestamp_(iso) {
+  if (!iso) return '';
+  var d;
+  try {
+    d = new Date(iso);
+    if (isNaN(d.getTime())) return String(iso).slice(0, 10);
+  } catch (err) {
+    return String(iso).slice(0, 10);
+  }
+  var now = new Date();
+  var tz = Session.getScriptTimeZone();
+  var sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+  if (sameDay) {
+    return Utilities.formatDate(d, tz, 'h:mm a');
+  }
+  var yesterday = new Date(now.getTime() - 86400000);
+  if (
+    d.getFullYear() === yesterday.getFullYear() &&
+    d.getMonth() === yesterday.getMonth() &&
+    d.getDate() === yesterday.getDate()
+  ) {
+    return 'Yesterday ' + Utilities.formatDate(d, tz, 'h:mm a');
+  }
+  var diffDays = Math.floor((now.getTime() - d.getTime()) / 86400000);
+  if (diffDays >= 0 && diffDays < 7) {
+    return Utilities.formatDate(d, tz, 'EEE h:mm a');
+  }
+  return Utilities.formatDate(d, tz, 'MMM d');
+}
+
+/**
  * "2026-05-07T..." or "2026-05-07" → "May 7" so the History view reads as a
  * timeline instead of a wall of identical YYYY-MM-DD strings.
  */
@@ -477,116 +519,136 @@ function buildInvoiceHistoryCard_(data) {
   var replies = data.replies || [];
   var schedules = data.schedules || [];
 
-  var card = CardService.newCardBuilder().setHeader(
-    CardService.newCardHeader()
-      .setTitle('History')
-      .setSubtitle((inv.clientName || 'Client') + ' · ' + fmtMoney_(inv.amount || 0))
-  );
+  // Header: client name is the title (their identity matters), money +
+  // invoice number is the subtitle (the data). Was "History" /
+  // "{client} · ${amount}" which made the card title generic and buried
+  // the client identity.
+  var card = CardService.newCardBuilder()
+    .setDisplayStyle(CardService.DisplayStyle.REPLACE)
+    .setHeader(
+      CardService.newCardHeader()
+        .setTitle(inv.clientName || 'Client')
+        .setSubtitle(
+          fmtMoney_(inv.amount || 0) +
+          (inv.quickbooksInvoiceId ? ' · Invoice ' + inv.quickbooksInvoiceId : '')
+        )
+    );
 
-  // Header summary section
-  var summary = CardService.newCardSection();
-  summary.addWidget(
+  // Status section — single tight line. Amount is already in header so
+  // don't repeat it; instead show "X days overdue · due Mon DD" as the
+  // bottom label and the action ("Draft reminder") right under it. The
+  // primary CTA moves up; was buried under all the log sections before.
+  var statusSec = CardService.newCardSection();
+  var daysOverdue = inv.daysOverdue || 0;
+  var statusLine = daysOverdue > 0
+    ? daysOverdue + ' days overdue'
+    : 'On schedule';
+  var dueLine = inv.dueDate ? 'due ' + formatShortDate_(inv.dueDate) : '';
+  statusSec.addWidget(
     CardService.newDecoratedText()
-      .setTopLabel('Invoice ' + (inv.quickbooksInvoiceId || ''))
-      .setText(fmtMoney_(inv.amount || 0))
-      .setBottomLabel(
-        (inv.daysOverdue || 0) + ' days overdue · due ' + (inv.dueDate || '')
-      )
+      .setStartIcon(CardService.newIconImage().setIconUrl(severityDotUrl_(daysOverdue)))
+      .setText(statusLine)
+      .setBottomLabel(dueLine)
   );
-  card.addSection(summary);
+  statusSec.addWidget(
+    CardService.newButtonSet().addButton(
+      CardService.newTextButton()
+        .setText('Draft reminder')
+        .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+        .setOnClickAction(
+          CardService.newAction()
+            .setFunctionName('onDraftReminder')
+            .setParameters({
+              invoiceId: String(inv.id),
+              clientEmail: String(inv.clientEmail || ''),
+            })
+        )
+    )
+  );
+  card.addSection(statusSec);
 
-  // Scheduled follow-ups section — what's planned next.
+  // Planned follow-up — render section ONLY when scheduled. The empty
+  // case was a 3-line paragraph explaining a non-event; not rendering
+  // anything is more honest design.
   if (schedules.length) {
-    var schedSec = CardService.newCardSection().setHeader('Planned follow-ups');
+    var schedSec = CardService.newCardSection().setHeader('Planned');
     schedules.forEach(function (s, i) {
       if (i > 0) schedSec.addWidget(CardService.newDivider());
       schedSec.addWidget(
         CardService.newDecoratedText()
-          .setTopLabel(s.scheduled_for || '')
+          .setTopLabel(formatShortDate_(s.scheduled_for))
           .setText('Auto follow-up')
           .setBottomLabel(s.reason || '')
           .setWrapText(true)
       );
     });
     card.addSection(schedSec);
-  } else {
-    var emptySched = CardService.newCardSection().setHeader('Planned follow-ups');
-    emptySched.addWidget(
-      CardService.newTextParagraph().setText(
-        'No automated follow-up scheduled. Click any client reply on this invoice and we will plan the next step.'
-      )
-    );
-    card.addSection(emptySched);
   }
 
-  // Reminder log section — what we sent.
-  var remSec = CardService.newCardSection().setHeader('Reminders sent');
-  if (!reminders.length) {
-    remSec.addWidget(CardService.newTextParagraph().setText('No reminders sent yet.'));
-  } else {
-    reminders.forEach(function (r, i) {
+  // Reminders sent — compact log. Show the most recent 5; collapse the
+  // rest into a single "+N earlier" tap-to-expand line so a heavy log
+  // (e.g., 14 sends during testing) doesn't dominate the card. Dropped
+  // the bolded subject (auto-generated, identical across sends, read as
+  // noise). Row label: tone if set, else "Sent" — the email icon already
+  // says "this is an email event," so the label only needs to add context.
+  if (reminders.length) {
+    var remSec = CardService.newCardSection().setHeader(
+      reminders.length === 1 ? '1 reminder sent' : reminders.length + ' reminders sent'
+    );
+    var MAX_ROWS = 5;
+    var visible = reminders.slice(0, MAX_ROWS);
+    visible.forEach(function (r, i) {
       if (i > 0) remSec.addWidget(CardService.newDivider());
-      // Subject is the most useful text — bold it. Top label is a friendly
-      // date. Bottom label is just the tone + pay-now indicator — dropped
-      // the internal channel string ("gmail-compose-addon") which leaked
-      // implementation detail to the user.
-      var bits = [];
-      if (r.tone) bits.push(capitalize_(r.tone) + ' tone');
-      if (r.pay_link_included) bits.push('Pay Now included');
+      var label;
+      if (r.tone) {
+        label = capitalize_(r.tone);
+      } else {
+        label = 'Sent';
+      }
+      if (r.pay_link_included) label = label + ' · Pay Now';
       remSec.addWidget(
         CardService.newDecoratedText()
-          .setTopLabel(formatShortDate_(r.created_at))
-          .setText('<b>' + escapeHtml_(r.subject || '(no subject)') + '</b>')
-          .setBottomLabel(bits.join(' · '))
-          .setWrapText(true)
+          .setStartIcon(CardService.newIconImage().setIcon(CardService.Icon.EMAIL))
+          .setText(label)
+          .setBottomLabel(formatTimestamp_(r.created_at))
       );
     });
+    if (reminders.length > MAX_ROWS) {
+      var hidden = reminders.length - MAX_ROWS;
+      remSec.addWidget(
+        CardService.newTextParagraph().setText(
+          '+' + hidden + ' earlier'
+        )
+      );
+    }
+    card.addSection(remSec);
   }
-  card.addSection(remSec);
 
-  // Reply log section — what the client said.
-  var repSec = CardService.newCardSection().setHeader('Client replies');
-  if (!replies.length) {
-    repSec.addWidget(CardService.newTextParagraph().setText('No replies classified yet.'));
-  } else {
+  // Replies — only when there are any. Empty-state copy was misleading
+  // ("No replies classified yet" implies a queue of classifications) so
+  // we just omit the section when empty.
+  if (replies.length) {
+    var repSec = CardService.newCardSection().setHeader(
+      replies.length === 1 ? '1 reply' : replies.length + ' replies'
+    );
     replies.forEach(function (rep, i) {
       if (i > 0) repSec.addWidget(CardService.newDivider());
       var bottom = '';
       if (rep.classification === 'will_pay_later' && rep.promised_pay_date) {
-        bottom = 'Promised by ' + rep.promised_pay_date;
+        bottom = 'Promised ' + formatShortDate_(rep.promised_pay_date);
       } else if (rep.suggested_action) {
         bottom = rep.suggested_action;
       }
       repSec.addWidget(
         CardService.newDecoratedText()
-          .setTopLabel((rep.created_at || '').slice(0, 10))
+          .setTopLabel(formatTimestamp_(rep.created_at))
           .setText(classificationHeadline_(rep.classification))
           .setBottomLabel(bottom)
           .setWrapText(true)
       );
     });
+    card.addSection(repSec);
   }
-  card.addSection(repSec);
-
-  // Quick actions
-  var actions = CardService.newCardSection();
-  actions.addWidget(
-    CardService.newButtonSet()
-      .addButton(
-        CardService.newTextButton()
-          .setText('Draft reminder')
-          .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
-          .setOnClickAction(
-            CardService.newAction()
-              .setFunctionName('onDraftReminder')
-              .setParameters({
-                invoiceId: String(inv.id),
-                clientEmail: String(inv.clientEmail || ''),
-              })
-          )
-      )
-  );
-  card.addSection(actions);
 
   return card.build();
 }
@@ -2544,12 +2606,16 @@ function fmtMoneyCompact_(n) {
 }
 
 function fmtMoney_(n) {
-  if (n === undefined || n === null) return '$0.00';
+  if (n === undefined || n === null) return '$0';
   var num = Number(n);
-  if (isNaN(num)) return '$0.00';
+  if (isNaN(num)) return '$0';
   var fixed = num.toFixed(2);
   var parts = fixed.split('.');
   parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  // Drop trailing .00 on whole-dollar amounts ($10,800 not $10,800.00).
+  // For non-whole amounts ($10,800.42), keep the cents. Apple Wallet,
+  // iOS Stocks, and most fintech UIs follow this rule.
+  if (parts[1] === '00') return '$' + parts[0];
   return '$' + parts[0] + '.' + parts[1];
 }
 
