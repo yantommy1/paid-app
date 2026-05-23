@@ -12,7 +12,7 @@
  */
 
 /** Deployed add-on version (bump when publishing a new deployment). */
-var VERSION = '1.2.6';
+var VERSION = '1.2.8';
 
 var PROP_API = 'PAID_API_BASE';
 var PROP_API_KEY = 'PAID_API_KEY';
@@ -955,87 +955,39 @@ function buildDraftPreviewCard_(invoiceId) {
   var body = draft && draft.body ? draft.body : '';
   var tone = (draft && draft.tone) || 'professional';
   var payNowIncluded = !!(draft && draft.payNowIncluded);
+  var clientEmail = (draft && draft.clientEmail) || '';
 
-  var card = CardService.newCardBuilder().setHeader(
-    CardService.newCardHeader().setTitle('Draft').setSubtitle('Your AI-drafted reminder')
-  );
-
-  card.addSection(
-    CardService.newCardSection()
-      .addWidget(
-        CardService.newDecoratedText()
-          .setText(subj || 'No subject')
-          .setWrapText(true)
-      )
-      .addWidget(
-        CardService.newTextParagraph().setText(truncateDraftBodyMobile_(body))
-      )
-  );
-
-  // Compact Pay Now status badge — uses an icon, not a wall of body-text.
-  var statusSec = CardService.newCardSection();
-  if (payNowIncluded) {
-    statusSec.addWidget(
-      CardService.newDecoratedText()
-        .setStartIcon(
-          CardService.newIconImage().setIcon(CardService.Icon.DOLLAR)
-        )
-        .setText('Pay Now active')
-        .setBottomLabel('This email includes a Stripe Checkout link.')
+  // Header: data, not labels. "Draft to client@firm.com" is more useful
+  // than the previous "Draft / Your AI-drafted reminder" filler subtitle.
+  // setDisplayStyle(REPLACE) on every contextual return path.
+  var card = CardService.newCardBuilder()
+    .setDisplayStyle(CardService.DisplayStyle.REPLACE)
+    .setHeader(
+      CardService.newCardHeader()
+        .setTitle('Draft')
+        .setSubtitle(clientEmail || subj || 'Reminder')
     );
-  } else {
-    statusSec.addWidget(
+
+  // Subject + body in one tight section. Subject gets its own line so it
+  // reads like an email preview, not a label/value pair.
+  var bodySec = CardService.newCardSection();
+  if (subj) {
+    bodySec.addWidget(
       CardService.newDecoratedText()
-        .setStartIcon(
-          CardService.newIconImage().setIcon(CardService.Icon.DOLLAR)
-        )
-        .setText('No Pay Now button')
-        .setBottomLabel('Connect Stripe to let clients pay in one click.')
-    );
-    statusSec.addWidget(
-      CardService.newButtonSet().addButton(
-        CardService.newTextButton()
-          .setText('Connect Stripe')
-          .setTextButtonStyle(CardService.TextButtonStyle.OUTLINED)
-          .setOnClickAction(
-            CardService.newAction().setFunctionName('onStartStripeConnect')
-          )
-      )
+        .setTopLabel('Subject')
+        .setText(subj)
+        .setWrapText(true)
     );
   }
-  card.addSection(statusSec);
-
-  // Tone control — re-drafts the body when tapped.
-  var toneSec = CardService.newCardSection().setHeader('Tone');
-  toneSec.addWidget(
-    CardService.newTextParagraph().setText(
-      'Slide from friendly to firm. We pre-pick based on the client\'s payment history and the invoice size — tap to override.'
-    )
+  bodySec.addWidget(
+    CardService.newTextParagraph().setText(truncateDraftBodyMobile_(body))
   );
-  var toneRow = CardService.newButtonSet();
-  ['friendly', 'professional', 'firm'].forEach(function (t) {
-    var label = capitalize_(t);
-    var btn = CardService.newTextButton()
-      .setText(t === tone ? '● ' + label : label)
-      .setTextButtonStyle(
-        t === tone
-          ? CardService.TextButtonStyle.FILLED
-          : CardService.TextButtonStyle.OUTLINED
-      )
-      .setOnClickAction(
-        CardService.newAction()
-          .setFunctionName('onChangeTone')
-          .setParameters({ invoiceId: String(invoiceId), tone: t })
-      );
-    toneRow.addButton(btn);
-  });
-  toneSec.addWidget(toneRow);
-  card.addSection(toneSec);
+  card.addSection(bodySec);
 
-  // Single "Edit in Gmail" action — creates a real Gmail draft via CardService
-  // compose action so the user reviews + sends in Gmail directly. The compose
-  // action handler also fires the backend mark-as-sent / log call so we keep
-  // tracking even though the user hits Send in Gmail.
+  // Primary action — Edit in Gmail — surfaced immediately after the body
+  // (was buried at the bottom of the card before). One FILLED button only;
+  // the tone selector is a control, not an action.
+  var primarySec = CardService.newCardSection();
   var btnRow = CardService.newButtonSet();
   try {
     btnRow.addButton(
@@ -1057,8 +1009,62 @@ function buildDraftPreviewCard_(invoiceId) {
         .setOnClickAction(CardService.newAction().setFunctionName('onEditInGmailUnavailable'))
     );
   }
+  primarySec.addWidget(btnRow);
+  card.addSection(primarySec);
 
-  card.addSection(CardService.newCardSection().addWidget(btnRow));
+  // Tone selector. Header only, no marketing copy. Three buttons in a row,
+  // active one FILLED. That's it.
+  var toneSec = CardService.newCardSection().setHeader('Tone');
+  var toneRow = CardService.newButtonSet();
+  ['friendly', 'professional', 'firm'].forEach(function (t) {
+    var btn = CardService.newTextButton()
+      .setText(capitalize_(t))
+      .setTextButtonStyle(
+        t === tone
+          ? CardService.TextButtonStyle.FILLED
+          : CardService.TextButtonStyle.OUTLINED
+      )
+      .setOnClickAction(
+        CardService.newAction()
+          .setFunctionName('onChangeTone')
+          .setParameters({ invoiceId: String(invoiceId), tone: t })
+      );
+    toneRow.addButton(btn);
+  });
+  toneSec.addWidget(toneRow);
+  card.addSection(toneSec);
+
+  // Pay Now status — small footnote at the bottom. If enabled, single
+  // line confirmation. If disabled, single line + an OUTLINED secondary
+  // button (Stripe Connect). Not the visual centerpiece anymore.
+  var statusSec = CardService.newCardSection();
+  if (payNowIncluded) {
+    statusSec.addWidget(
+      CardService.newDecoratedText()
+        .setStartIcon(CardService.newIconImage().setIcon(CardService.Icon.DOLLAR))
+        .setText('Pay Now included')
+        .setWrapText(true)
+    );
+  } else {
+    statusSec.addWidget(
+      CardService.newDecoratedText()
+        .setStartIcon(CardService.newIconImage().setIcon(CardService.Icon.DOLLAR))
+        .setText('No Pay Now button')
+        .setBottomLabel('Connect Stripe to enable one-click payment.')
+        .setWrapText(true)
+    );
+    statusSec.addWidget(
+      CardService.newButtonSet().addButton(
+        CardService.newTextButton()
+          .setText('Connect Stripe')
+          .setTextButtonStyle(CardService.TextButtonStyle.TEXT)
+          .setOnClickAction(
+            CardService.newAction().setFunctionName('onStartStripeConnect')
+          )
+      )
+    );
+  }
+  card.addSection(statusSec);
 
   return card.build();
 }
@@ -1290,7 +1296,13 @@ function clearHomePackCache_() {
 }
 
 function buildHomePage_(e) {
-  var card = CardService.newCardBuilder();
+  // setDisplayStyle(REPLACE) — the home card is now also used as the
+  // contextual fallback when there's no useful per-thread content. On
+  // mobile, contextual cards default to PEEK chrome (Cancel/View buttons
+  // at the bottom). REPLACE suppresses that. Ignored for true homepage
+  // trigger renders, so safe to always set.
+  var card = CardService.newCardBuilder()
+    .setDisplayStyle(CardService.DisplayStyle.REPLACE);
 
   if (!getApiKey_()) {
     // Try identity-based auth first — for users who already signed up at
@@ -1301,7 +1313,7 @@ function buildHomePage_(e) {
 
   if (!getApiKey_() || !getApiBase_()) {
     return card
-      .setHeader(CardService.newCardHeader().setTitle('Paid').setSubtitle('Connect to continue - v' + VERSION))
+      .setHeader(CardService.newCardHeader().setTitle('Paid').setSubtitle('Connect to continue'))
       .addSection(buildSettingsSection_())
       .build();
   }
@@ -1328,68 +1340,76 @@ function buildHomePage_(e) {
     var header = data.header || {};
     var invoices = data.invoices || [];
 
+    // Header: outstanding $ as the hero number. No version stamp — that
+    // lives on the diagnostic card now. No "v1.x" cruft on the user's
+    // primary surface.
     card.setHeader(
       CardService.newCardHeader()
         .setTitle('Paid')
-        .setSubtitle(formatHeaderLine_(header) + ' - v' + VERSION)
+        .setSubtitle(formatHeaderLine_(header))
     );
-
-    var cohortSec = CardService.newCardSection();
-    cohortSec.setHeader('Outstanding by age');
-    cohortSec.addWidget(buildCohortRow_(DOT_90, '90+ days', cohorts.d90));
-    cohortSec.addWidget(buildCohortRow_(DOT_60, '60-90 days', cohorts.d60));
-    cohortSec.addWidget(buildCohortRow_(DOT_30, '30-60 days', cohorts.d30));
-    cohortSec.addWidget(buildCohortRow_(DOT_OK, 'Current', cohorts.current));
-    card.addSection(cohortSec);
-
-    var activitySec = buildActivitySectionFromPack_(data.activity);
-    if (activitySec) card.addSection(activitySec);
-
-    var remindersSec = buildRecentRemindersSectionFromPack_(data.recentReminders);
-    if (remindersSec) card.addSection(remindersSec);
 
     var overdue = invoices.filter(function (r) {
       return (r.days_overdue || 0) >= 30;
     });
 
+    // Cohorts — the only summary section the user needs at-a-glance.
+    // Section header dropped (the cohort labels speak for themselves) so
+    // the four rows read as a clean stack instead of "section title +
+    // bullet rows + bottom margin".
+    var cohortSec = CardService.newCardSection();
+    cohortSec.addWidget(buildCohortRow_(DOT_90, '90+ days', cohorts.d90));
+    cohortSec.addWidget(buildCohortRow_(DOT_60, '60–90 days', cohorts.d60));
+    cohortSec.addWidget(buildCohortRow_(DOT_30, '30–60 days', cohorts.d30));
+    cohortSec.addWidget(buildCohortRow_(DOT_OK, 'Current', cohorts.current));
+    card.addSection(cohortSec);
+
+    // Activity — actionable client replies that need a response. Only
+    // shown if there's something. We dropped the standalone "Recent
+    // reminders" section because the merchant just sent them; rendering
+    // them in the sidebar a second time was noise.
+    var activitySec = buildActivitySectionFromPack_(data.activity);
+    if (activitySec) card.addSection(activitySec);
+
+    // Overdue invoices — the action queue. Header is dropped when there's
+    // nothing overdue (clean empty state).
     var listSec = CardService.newCardSection();
-    listSec.setHeader('Overdue invoices');
     if (!overdue.length) {
       listSec.addWidget(
         CardService.newDecoratedText()
-          .setText('No invoices overdue 30+ days')
-          .setBottomLabel('All invoices are current.')
+          .setText('No overdue invoices')
+          .setBottomLabel('You are caught up.')
       );
     } else {
+      listSec.setHeader('Action queue · ' + overdue.length + ' overdue');
       overdue.slice(0, 25).forEach(function (row, idx) {
         appendInvoiceBlock_(listSec, row, idx > 0);
       });
       if (overdue.length > 25) {
         listSec.addWidget(
           CardService.newTextParagraph().setText(
-            'Plus ' +
-              (overdue.length - 25) +
-              ' more. Open paid-app.com to see all.'
+            '+' + (overdue.length - 25) + ' more on paid-app.com'
           )
         );
       }
     }
     card.addSection(listSec);
 
-    // Footer: just the bulk-review action. Developer plumbing (API base URL,
-    // API key) lives behind the auth-failure recovery card now — customers
-    // don't see a Settings button on the front of the sidebar.
-    var foot = CardService.newCardSection();
-    foot.addWidget(
-      CardService.newButtonSet()
-        .addButton(
-          CardService.newTextButton()
-            .setText('Review all reminders')
-            .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
-            .setOnClickAction(CardService.newAction().setFunctionName('onQueueAllReminders'))
-        )
-    );
-    card.addSection(foot);
+    // Single primary action only when there's something to review. No
+    // floating button when the action queue is empty.
+    if (overdue.length > 0) {
+      var foot = CardService.newCardSection();
+      foot.addWidget(
+        CardService.newButtonSet()
+          .addButton(
+            CardService.newTextButton()
+              .setText('Review all reminders')
+              .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+              .setOnClickAction(CardService.newAction().setFunctionName('onQueueAllReminders'))
+          )
+      );
+      card.addSection(foot);
+    }
 
     card.addCardAction(
       CardService.newCardAction()
@@ -1549,10 +1569,10 @@ function buildContextualForMessage_(e) {
   var access = e.gmail && e.gmail.accessToken;
   var messageId = e.gmail && e.gmail.messageId;
   if (!access || !messageId) {
-    return buildNotifyCard_(
-      'Open a message to see Paid matches.',
-      'onRefreshContextualMessage'
-    );
+    // No message in context yet — show the home dashboard instead of a
+    // dead-end "open a message" notify card. The dashboard is always
+    // actionable.
+    return buildHomePage_({});
   }
 
   var emails = extractEmailsFromMessage_(messageId, access);
@@ -1565,15 +1585,12 @@ function buildContextualForMessage_(e) {
   }
   var fromEmail = extractFromEmail_(messageId, access);
 
-  // Empty contextual = no useful card. Show a helpful empty state instead
-  // of just a header + blank body (which is what the user has been seeing
-  // when they open a thread that has only their own address as a participant,
-  // or right after sending when Gmail hands us a transient state).
+  // No useful contextual content for this thread — drop the merchant into
+  // the home dashboard view (cohorts, recent reminders, activity) instead
+  // of a dead-end "no client contacts on this thread" card. The home
+  // dashboard is always useful; the empty notify card never was.
   if (!emails.length && (!fromEmail || fromEmail === ownEmail)) {
-    return buildNotifyCard_(
-      'No client contacts on this thread. Open a client email or wait a moment after sending.',
-      'onRefreshContextualMessage'
-    );
+    return buildHomePage_({});
   }
 
   return buildCardsForEmails_(emails, 'onRefreshContextualMessage', {
@@ -1610,10 +1627,10 @@ function buildContextualForCompose_(e) {
 
   emails = uniqueLower_(emails);
   if (!emails.length) {
-    return buildNotifyCard_(
-      'Open a conversation with your client to see their invoices.',
-      'onRefreshContextualCompose'
-    );
+    // No recipients in compose yet — show the home dashboard so the user
+    // can see their full A/R while they type the To: field, instead of a
+    // dead-end notify card.
+    return buildHomePage_({});
   }
 
   return buildCardsForEmails_(emails, 'onRefreshContextualCompose');
@@ -1645,7 +1662,7 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
   var ownAddrEarly = getOwnEmailLower_();
   var isOutbound =
     replyContext && replyContext.fromEmail && replyContext.fromEmail === ownAddrEarly;
-  var headerSubtitle = isOutbound ? 'Sent · client A/R below' : 'This contact';
+  var headerSubtitle = isOutbound ? 'Sent' : 'Contact';
 
   // setDisplayStyle(REPLACE) is the ONLY way to suppress Gmail Mobile's
   // automatic PEEK chrome (the Cancel/View buttons at the bottom of the
@@ -1795,18 +1812,35 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
         )
       );
     } else if (isOutbound) {
-      // The open message is the merchant's own outbound. Don't show the
-      // "Classify with Paid" reply prompt (it's misleading — there's no
-      // client reply to classify yet). Instead, show a tight confirmation
-      // strip so the user knows the send completed and where to look next.
+      // The open message looks like the merchant's own outbound. Default UX
+      // is to skip the classify prompt — but expose a manual override so
+      // self-test flows (sending to your own address) and edge cases
+      // (replying from an alias of your own domain) can still be classified
+      // on demand. Without this button there's no way to test the reply
+      // pipeline with your own email.
       classifySec.addWidget(
         CardService.newDecoratedText()
-          .setTopLabel('You just sent this reminder')
-          .setText('Sent · waiting on client')
+          .setTopLabel('You sent or replied to this')
+          .setText('Auto-classify skipped')
           .setBottomLabel(
-            "We'll classify the client's reply automatically when it arrives."
+            "We skip auto-classify on your own outbound. Tap below if you want to classify this thread anyway (useful for testing)."
           )
           .setWrapText(true)
+      );
+      classifySec.addWidget(
+        CardService.newButtonSet().addButton(
+          CardService.newTextButton()
+            .setText('Classify this thread')
+            .setTextButtonStyle(CardService.TextButtonStyle.OUTLINED)
+            .setOnClickAction(
+              CardService.newAction()
+                .setFunctionName('onClassifyReply')
+                .setParameters({
+                  messageId: replyContext.messageId,
+                  fromEmail: clientEmailForClassify || replyContext.fromEmail || '',
+                })
+            )
+        )
       );
     } else {
       classifySec.addWidget(
