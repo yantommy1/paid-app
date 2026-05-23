@@ -12,7 +12,7 @@
  */
 
 /** Deployed add-on version (bump when publishing a new deployment). */
-var VERSION = '1.3.2';
+var VERSION = '1.3.3';
 
 var PROP_API = 'PAID_API_BASE';
 var PROP_API_KEY = 'PAID_API_KEY';
@@ -26,11 +26,16 @@ var PROP_USER_DISPLAY_NAME = 'PAID_USER_DISPLAY_NAME';
  */
 var DEFAULT_API_BASE = 'https://paid-app.com';
 
-/** Cohort dot swatches (Linear-style accents) */
-var DOT_90 = 'https://placehold.co/10x10/dc2626/dc2626.png';
-var DOT_60 = 'https://placehold.co/10x10/ea580c/ea580c.png';
-var DOT_30 = 'https://placehold.co/10x10/ca8a04/ca8a04.png';
-var DOT_OK = 'https://placehold.co/10x10/16a34a/16a34a.png';
+/**
+ * Cohort dot swatches — circular PNGs hosted on paid-app.com. Were
+ * solid square blocks via placehold.co before; the box shape made the
+ * home card read as "boxy and primitive" (real feedback). These are
+ * supersampled 64×64 anti-aliased circles, served behind Vercel's CDN.
+ */
+var DOT_90 = 'https://paid-app.com/marketplace/dot-red.png';
+var DOT_60 = 'https://paid-app.com/marketplace/dot-orange.png';
+var DOT_30 = 'https://paid-app.com/marketplace/dot-yellow.png';
+var DOT_OK = 'https://paid-app.com/marketplace/dot-green.png';
 
 /** Right-rail home: full outstanding view + cohort totals + Send All Reminders. */
 function onGmailHomePage(e) {
@@ -1133,12 +1138,12 @@ function buildDraftPreviewCard_(invoiceId) {
 
 function formatHeaderLine_(header) {
   if (!header) return '';
-  var total = fmtMoney_(header.totalOutstanding);
+  // Compact (rounded, no cents) at the header \u2014 "$24,182 outstanding"
+  // reads cleaner than "$24,181.52 outstanding" for an at-a-glance
+  // dashboard headline. Exact cents still appear on line items and the
+  // History card where precision matters.
+  var total = fmtMoneyCompact_(header.totalOutstanding);
   var clients = header.overdueClientCount || 0;
-  // Hero is the dollar amount. Client count is supporting context. We
-  // dropped "avg N days" \u2014 it's a metric that doesn't drive action and was
-  // making the subtitle feel like a stats dump. Cohort breakdown below
-  // shows the age distribution anyway.
   if (!clients) return total + ' outstanding';
   return total + ' outstanding \u00b7 ' + clients + (clients === 1 ? ' client' : ' clients');
 }
@@ -1189,6 +1194,10 @@ function appendInvoiceBlock_(section, row, withDivider) {
   // wasn't actionable info at this view \u2014 surfaces in the per-invoice
   // History card when needed).
   var bottomLine = (d > 0 ? d + ' days overdue' : 'current');
+  // Make the invoice row itself tappable → opens History. This replaces
+  // the secondary OUTLINED "History" button that doubled the visual
+  // weight of every row. Now: one tap on the row body for History, one
+  // FILLED primary button for the actual action (Draft reminder).
   section.addWidget(
     CardService.newDecoratedText()
       .setStartIcon(CardService.newIconImage().setIconUrl(dotUrl))
@@ -1196,6 +1205,11 @@ function appendInvoiceBlock_(section, row, withDivider) {
       .setText(fmtMoney_(row.amount))
       .setBottomLabel(bottomLine)
       .setWrapText(true)
+      .setOnClickAction(
+        CardService.newAction()
+          .setFunctionName('onShowInvoiceHistory')
+          .setParameters({ invoiceId: String(row.id) })
+      )
   );
 
   section.addWidget(
@@ -1211,16 +1225,6 @@ function appendInvoiceBlock_(section, row, withDivider) {
                 invoiceId: String(row.id),
                 clientEmail: String(row.client_email || ''),
               })
-          )
-      )
-      .addButton(
-        CardService.newTextButton()
-          .setText('History')
-          .setTextButtonStyle(CardService.TextButtonStyle.OUTLINED)
-          .setOnClickAction(
-            CardService.newAction()
-              .setFunctionName('onShowInvoiceHistory')
-              .setParameters({ invoiceId: String(row.id) })
           )
       )
   );
