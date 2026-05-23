@@ -12,7 +12,7 @@
  */
 
 /** Deployed add-on version (bump when publishing a new deployment). */
-var VERSION = '1.2.8';
+var VERSION = '1.2.9';
 
 var PROP_API = 'PAID_API_BASE';
 var PROP_API_KEY = 'PAID_API_KEY';
@@ -1340,13 +1340,13 @@ function buildHomePage_(e) {
     var header = data.header || {};
     var invoices = data.invoices || [];
 
-    // Header: outstanding $ as the hero number. No version stamp — that
-    // lives on the diagnostic card now. No "v1.x" cruft on the user's
-    // primary surface.
+    // Header: outstanding $ as the hero number. Version kept on the
+    // subtitle so you can verify which build is live after a clasp deploy
+    // (this is the only reliable in-app version surface).
     card.setHeader(
       CardService.newCardHeader()
         .setTitle('Paid')
-        .setSubtitle(formatHeaderLine_(header))
+        .setSubtitle(formatHeaderLine_(header) + ' · v' + VERSION)
     );
 
     var overdue = invoices.filter(function (r) {
