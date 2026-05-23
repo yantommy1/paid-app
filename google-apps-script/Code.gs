@@ -12,7 +12,7 @@
  */
 
 /** Deployed add-on version (bump when publishing a new deployment). */
-var VERSION = '1.2.1';
+var VERSION = '1.2.2';
 
 var PROP_API = 'PAID_API_BASE';
 var PROP_API_KEY = 'PAID_API_KEY';
@@ -310,6 +310,24 @@ function onChangeTone(e) {
 function capitalize_(s) {
   if (!s || typeof s !== 'string') return '';
   return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+}
+
+/**
+ * Current Apps Script user's email, lowercased. Cached in script-scoped
+ * memory so we don't pay Session API cost on every contextual render.
+ * Returns '' if the userinfo.email scope isn't granted yet (shouldn't
+ * happen post-install, but defensive).
+ */
+var _OWN_EMAIL_CACHE = null;
+function getOwnEmailLower_() {
+  if (_OWN_EMAIL_CACHE !== null) return _OWN_EMAIL_CACHE;
+  try {
+    var e = Session.getActiveUser().getEmail() || '';
+    _OWN_EMAIL_CACHE = e.toLowerCase();
+  } catch (err) {
+    _OWN_EMAIL_CACHE = '';
+  }
+  return _OWN_EMAIL_CACHE;
 }
 
 /**
@@ -1463,7 +1481,26 @@ function buildContextualForMessage_(e) {
   }
 
   var emails = extractEmailsFromMessage_(messageId, access);
+  // Drop the merchant's own address — calling /api/contacts/activity for
+  // themselves just returns empty and rendered as "No invoices on record"
+  // which looks broken. We want client contacts only.
+  var ownEmail = getOwnEmailLower_();
+  if (ownEmail) {
+    emails = emails.filter(function (em) { return em !== ownEmail; });
+  }
   var fromEmail = extractFromEmail_(messageId, access);
+
+  // Empty contextual = no useful card. Show a helpful empty state instead
+  // of just a header + blank body (which is what the user has been seeing
+  // when they open a thread that has only their own address as a participant,
+  // or right after sending when Gmail hands us a transient state).
+  if (!emails.length && (!fromEmail || fromEmail === ownEmail)) {
+    return buildNotifyCard_(
+      'No client contacts on this thread. Open a client email or wait a moment after sending.',
+      'onRefreshContextualMessage'
+    );
+  }
+
   return buildCardsForEmails_(emails, 'onRefreshContextualMessage', {
     messageId: String(messageId),
     fromEmail: fromEmail,
@@ -1651,9 +1688,7 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
           CardService.newCardSection().addWidget(
             CardService.newDecoratedText()
               .setText(email)
-              .setBottomLabel(
-                'Could not connect to Paid. Check your API key and try again.'
-              )
+              .setBottomLabel(userFacingApiError_(res.statusCode, res.body))
           )
         );
         continue;
@@ -1906,17 +1941,29 @@ function buildNotifyCard_(text, refreshFunctionName) {
 // --- HTTP + helpers ---
 
 /**
- * User-visible API failure copy (do not show raw HTTP status lines or response bodies).
+ * User-visible API failure copy — surfaces enough of the actual failure so
+ * we (and the user) can tell the difference between an auth problem, a
+ * server bug, and a network blip. The previous "Check your API key" copy
+ * fired for every non-200 which masked real backend failures.
  */
 function userFacingApiError_(statusCode, body) {
   var c = Number(statusCode) || 0;
   if (c === 401 || c === 403) {
-    return 'Could not connect to Paid. Check your API key and try again.';
+    return 'Paid rejected the request (auth). Reconnect from Settings.';
   }
   if (c === 404) {
-    return 'Could not connect to Paid. Check your API base URL and try again.';
+    return 'Paid endpoint missing (404). The server may be deploying — try again in a minute.';
   }
-  return 'Could not connect to Paid. Check your API key and try again.';
+  if (c === 429) {
+    return 'Paid is rate-limiting (429). Try again in a few seconds.';
+  }
+  if (c >= 500 && c < 600) {
+    return 'Paid server error (' + c + '). Try again — if it persists, refresh the sidebar.';
+  }
+  if (c === 0) {
+    return 'Could not reach Paid (network). Check your connection and try again.';
+  }
+  return 'Paid request failed (HTTP ' + c + '). Try again.';
 }
 
 function classifyErrorKind_(statusCode, body) {
