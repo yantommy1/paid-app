@@ -12,7 +12,7 @@
  */
 
 /** Deployed add-on version (bump when publishing a new deployment). */
-var VERSION = '1.2.3';
+var VERSION = '1.2.4';
 
 var PROP_API = 'PAID_API_BASE';
 var PROP_API_KEY = 'PAID_API_KEY';
@@ -1632,6 +1632,13 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
   var builder = CardService.newCardBuilder().setHeader(
     CardService.newCardHeader().setTitle('Paid').setSubtitle('This contact')
   );
+  // Track whether we added any content. If we get to the end with zero
+  // sections, we always render a useful fallback — the user should never
+  // see a card with only a header (the blank "after send" state Tommy
+  // reported was exactly this — emails resolved to something, classify
+  // section skipped because shouldAutoClassify was false and no prior
+  // existed, contact-activity fetch silently failed).
+  var sectionsAdded = 0;
 
   // Auto-classify only when the OPEN message is INBOUND from a client.
   // Previously we classified any thread with a fromEmail, which meant Tommy's
@@ -1787,6 +1794,7 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
       );
     }
     builder.addSection(classifySec);
+    sectionsAdded++;
   }
 
   for (var i = 0; i < emails.length; i++) {
@@ -1804,6 +1812,7 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
               .setBottomLabel(userFacingApiError_(res.statusCode, res.body))
           )
         );
+        sectionsAdded++;
         continue;
       }
       var data = JSON.parse(res.body);
@@ -1821,6 +1830,7 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
               .setBottomLabel('No invoices on record for this contact')
           )
         );
+        sectionsAdded++;
         continue;
       }
 
@@ -1859,6 +1869,7 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
           )
       );
       builder.addSection(summarySec);
+      sectionsAdded++;
 
       // Open invoices block (only if there are any)
       var openInvoices = invoicesAll.filter(function (r) {
@@ -1877,6 +1888,7 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
           );
         }
         builder.addSection(invSec);
+        sectionsAdded++;
       }
 
       // Recent reminders (last 5)
@@ -1898,6 +1910,7 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
           );
         });
         builder.addSection(remSec);
+        sectionsAdded++;
       }
 
       // Recent replies (last 3)
@@ -1921,6 +1934,7 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
           );
         });
         builder.addSection(repSec);
+        sectionsAdded++;
       }
     } catch (err) {
       if (err && err.name === 'PaidAuthReconnectError') {
@@ -1947,7 +1961,50 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
         )
       );
       builder.addSection(errSec);
+      sectionsAdded++;
     }
+  }
+
+  // Safety net: a card with only a header is a UX dead-end. Always show
+  // SOMETHING useful — either a "View dashboard" link (when we know who
+  // the contact is but the API gave us nothing actionable) or a "tap to
+  // open Paid" fallback. This is what fixes the "blank card after sending"
+  // state Tommy reported.
+  if (sectionsAdded === 0) {
+    var fallbackSec = CardService.newCardSection();
+    fallbackSec.addWidget(
+      CardService.newDecoratedText()
+        .setTopLabel('Paid')
+        .setText(
+          emails.length
+            ? 'No matching data for ' + emails[0] + ' yet.'
+            : 'Open a client email thread to see their A/R.'
+        )
+        .setBottomLabel(
+          'Outbound messages and threads with no Paid invoice show nothing here by design — invoice activity lives on the main sidebar.'
+        )
+        .setWrapText(true)
+    );
+    fallbackSec.addWidget(
+      CardService.newButtonSet()
+        .addButton(
+          CardService.newTextButton()
+            .setText('Open Paid')
+            .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+            .setOnClickAction(CardService.newAction().setFunctionName('onBackHome'))
+        )
+        .addButton(
+          CardService.newTextButton()
+            .setText('Refresh')
+            .setTextButtonStyle(CardService.TextButtonStyle.TEXT)
+            .setOnClickAction(
+              CardService.newAction().setFunctionName(
+                contextualRefreshFn || 'onRefreshContextualMessage'
+              )
+            )
+        )
+    );
+    builder.addSection(fallbackSec);
   }
 
   return builder.build();
