@@ -1,5 +1,5 @@
 import {
-  fetchCustomerEmail,
+  fetchCustomerEmailsByIds,
   fetchUnpaidInvoices,
   type QbInvoice,
 } from "@/lib/quickbooks/client";
@@ -103,11 +103,15 @@ function statusFromDaysOverdue(d: number): InvoiceStatus {
   return "current";
 }
 
-export async function mapInvoiceToRow(
+/**
+ * Map a single QbInvoice → InvoiceUpsertRow using a pre-resolved customer
+ * email map (no inline network calls — caller must batch fetch beforehand).
+ */
+export function mapInvoiceToRowSync(
   inv: QbInvoice,
   userId: string,
-  token: QuickBooksToken
-): Promise<InvoiceUpsertRow> {
+  customerEmailById: Record<string, string>
+): InvoiceUpsertRow {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const due = inv.DueDate ? new Date(inv.DueDate) : today;
@@ -117,8 +121,7 @@ export async function mapInvoiceToRow(
   const balance = Number(inv.Balance ?? inv.TotalAmt ?? 0);
   let email = inv.BillEmail?.Address?.trim() ?? "";
   if (!email && inv.CustomerRef?.value) {
-    const fetched = await fetchCustomerEmail(token, inv.CustomerRef.value);
-    email = fetched ?? "unknown@client.local";
+    email = customerEmailById[inv.CustomerRef.value] ?? "unknown@client.local";
   }
   if (!email) email = "unknown@client.local";
 
@@ -142,16 +145,53 @@ export async function mapInvoiceToRow(
   };
 }
 
+/**
+ * Back-compat wrapper — the old per-invoice API. Callers should prefer
+ * `mapInvoiceToRowSync` with a pre-fetched email map (avoids N+1).
+ */
+export async function mapInvoiceToRow(
+  inv: QbInvoice,
+  userId: string,
+  token: QuickBooksToken
+): Promise<InvoiceUpsertRow> {
+  const needsEmail = !inv.BillEmail?.Address && inv.CustomerRef?.value;
+  const emailMap = needsEmail
+    ? await fetchCustomerEmailsByIds(token, [inv.CustomerRef!.value])
+    : {};
+  return mapInvoiceToRowSync(inv, userId, emailMap);
+}
+
 export async function syncInvoicesForUser(
   supabase: SupabaseClient,
   userId: string,
   token: QuickBooksToken
 ): Promise<{ upserted: number; overdueCount: number }> {
   const invoices = await fetchUnpaidInvoices(token);
+
+  // Collect customer ids that need an email lookup (no BillEmail on invoice)
+  // and batch-fetch them in one set of parallel queries. This replaces the
+  // old per-invoice fetchCustomerEmail N+1 — at 50+ invoices without an
+  // inline BillEmail this turns a 10s+ sync into a sub-second one.
+  const idsNeedingEmail = Array.from(
+    new Set(
+      invoices
+        .filter(
+          (inv) =>
+            !inv.BillEmail?.Address?.trim() &&
+            typeof inv.CustomerRef?.value === "string"
+        )
+        .map((inv) => inv.CustomerRef!.value)
+    )
+  );
+  const customerEmailById =
+    idsNeedingEmail.length > 0
+      ? await fetchCustomerEmailsByIds(token, idsNeedingEmail)
+      : {};
+
   let overdueCount = 0;
   const rows: InvoiceUpsertRow[] = [];
   for (const inv of invoices) {
-    const row = await mapInvoiceToRow(inv, userId, token);
+    const row = mapInvoiceToRowSync(inv, userId, customerEmailById);
     if (
       row.status === "overdue_30" ||
       row.status === "overdue_60" ||
@@ -168,10 +208,16 @@ export async function syncInvoicesForUser(
 
   await applyReminderSentPreservation(supabase, userId, rows);
 
-  const { error } = await supabase.from("invoices").upsert(rows, {
-    onConflict: "user_id,quickbooks_invoice_id",
-  });
-  if (error) throw new Error(`Invoice upsert failed: ${error.message}`);
+  // Chunk upsert to keep payload sizes reasonable (>1000 rows hit Supabase
+  // payload limits and slow the round-trip).
+  const CHUNK = 500;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const slice = rows.slice(i, i + CHUNK);
+    const { error } = await supabase.from("invoices").upsert(slice, {
+      onConflict: "user_id,quickbooks_invoice_id",
+    });
+    if (error) throw new Error(`Invoice upsert failed: ${error.message}`);
+  }
 
   return { upserted: rows.length, overdueCount };
 }

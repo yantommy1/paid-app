@@ -24,17 +24,30 @@ export async function GET(request: NextRequest) {
   }
 
   const admin = createAdminClient();
-  const { data: users, error } = await admin.from("users").select("*");
+  // Only select fields we actually use — keeps the response small at scale.
+  const { data: users, error } = await admin
+    .from("users")
+    .select("id, email, quickbooks_token, gmail_token");
   if (error) {
     return serverError(error.message);
   }
 
   const results: Record<string, { sync?: string; reminders?: string }> = {};
 
-  for (const u of users ?? []) {
-    const uid = u.id as string;
+  /**
+   * Process one user: refresh QB token → sync invoices → load settings →
+   * process daily reminders. Errors are swallowed per-stage so a single
+   * user's failure doesn't stop their later steps or the other users.
+   */
+  async function processUser(u: {
+    id: string;
+    email: string | null;
+    quickbooks_token: QuickBooksToken | null;
+    gmail_token: GmailToken | null;
+  }) {
+    const uid = u.id;
     try {
-      let qb = u.quickbooks_token as QuickBooksToken | null;
+      let qb = u.quickbooks_token;
       try {
         qb = await ensureQuickBooksToken(qb);
         if (qb) {
@@ -43,8 +56,6 @@ export async function GET(request: NextRequest) {
             .update({ quickbooks_token: qb as unknown as Record<string, unknown> })
             .eq("id", uid);
           await syncInvoicesForUser(admin, uid, qb);
-          // Successful sync — clear any prior error banner the dashboard
-          // is showing, and stamp the success time.
           await admin
             .from("users")
             .update({
@@ -55,8 +66,6 @@ export async function GET(request: NextRequest) {
             .eq("id", uid);
         }
       } catch (syncErr) {
-        // Sync failure should not block draft pre-warm — log, persist a
-        // human-readable banner message on the user row, and continue.
         const message =
           syncErr instanceof Error ? syncErr.message : "QuickBooks sync failed";
         await admin
@@ -74,19 +83,22 @@ export async function GET(request: NextRequest) {
         });
       }
 
+      // Settings can be missing (user signed up but `handle_new_user`
+      // trigger never inserted a row). maybeSingle() returns null instead
+      // of throwing.
       const { data: settings } = await admin
         .from("settings")
-        .select("*")
+        .select("auto_send_enabled")
         .eq("user_id", uid)
-        .single();
+        .maybeSingle();
 
       const r = await processDailyReminders(
         admin,
         {
           id: uid,
-          email: u.email as string | null,
+          email: u.email,
           quickbooks_token: qb,
-          gmail_token: u.gmail_token as GmailToken | null,
+          gmail_token: u.gmail_token,
         },
         {
           auto_send_enabled: Boolean(settings?.auto_send_enabled),
@@ -104,9 +116,7 @@ export async function GET(request: NextRequest) {
         skipped: r.skipped,
       });
     } catch (e) {
-      results[uid] = {
-        sync: e instanceof Error ? e.message : "error",
-      };
+      results[uid] = { sync: e instanceof Error ? e.message : "error" };
       logError({
         route: "cron.daily",
         event: "user.processing_failed",
@@ -116,5 +126,20 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, results });
+  // Process users in parallel chunks. With sequential processing a slow QB
+  // tenant could time out Vercel's 60s function limit before reaching later
+  // users; chunked parallel keeps the cron fast and prevents starvation.
+  const CHUNK = 5;
+  const list = (users ?? []) as Array<{
+    id: string;
+    email: string | null;
+    quickbooks_token: QuickBooksToken | null;
+    gmail_token: GmailToken | null;
+  }>;
+  for (let i = 0; i < list.length; i += CHUNK) {
+    const slice = list.slice(i, i + CHUNK);
+    await Promise.all(slice.map(processUser));
+  }
+
+  return NextResponse.json({ ok: true, results, count: list.length });
 }

@@ -1,12 +1,17 @@
 import { serverError } from "@/lib/api/errors";
 import { getStripe } from "@/lib/stripe/connect";
+import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+// `email` is optional in the body — when the request comes from an authed
+// session (Onboarding flow), the server resolves it from Supabase auth so the
+// client can't lie. Only required when the request comes from a logged-out
+// pricing-page visitor (EmailCaptureModal).
 const BodySchema = z.object({
   priceId: z.string().min(1),
   plan: z.enum(["starter", "pro", "firm"]).optional(),
-  email: z.string().email(),
+  email: z.string().email().optional(),
   fullName: z.string().trim().min(1).max(160).optional(),
   firstName: z.string().trim().min(1).max(80).optional(),
   lastName: z.string().trim().min(1).max(80).optional(),
@@ -50,7 +55,26 @@ export async function POST(request: NextRequest) {
     return serverError("Invalid payload", 400);
   }
 
-  const { priceId, plan, email, fullName, firstName, lastName } = payload.data;
+  const { priceId, plan, email: bodyEmail, fullName, firstName, lastName } = payload.data;
+
+  // Prefer the authed session's email (cannot be spoofed by the client). Fall
+  // back to body email for the unauthed pricing flow.
+  let resolvedEmail = bodyEmail ?? "";
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user?.email) {
+      resolvedEmail = user.email;
+    }
+  } catch {
+    // Session check is best-effort — fall through to body email
+  }
+  if (!resolvedEmail) {
+    return serverError("Email required to start checkout.", 400);
+  }
+  const email = resolvedEmail;
   const validPriceIds = [starter, pro, firm].filter(Boolean) as string[];
   if (!validPriceIds.includes(priceId)) {
     console.error("[create-checkout] Invalid priceId", { priceId });

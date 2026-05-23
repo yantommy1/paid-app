@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" role="img" aria-label="Paid logo">
+  <rect x="0" y="0" width="80" height="80" rx="18" fill="#1B4332"/>
+  <text x="40" y="60" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif"
+        font-weight="700" font-size="64" fill="#FAFAFA" letter-spacing="-2">P</text>
+  <circle cx="55" cy="44" r="2.5" fill="#FAFAFA"/>
+</svg>

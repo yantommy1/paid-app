@@ -2,11 +2,13 @@ import { apiError, serverError, unauthorized } from "@/lib/api/errors";
 import { requireUserFromRequest } from "@/lib/api/require-user-request";
 import { getAppUrl } from "@/lib/env/app-url";
 import { isSafeInternalPath } from "@/lib/http/safe-internal-path";
+import { logError, logInfo } from "@/lib/observability/log";
+import { syncInvoicesForUser } from "@/lib/quickbooks/sync";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { QuickBooksToken } from "@/lib/types";
 import { cookies } from "next/headers";
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 
 const QB_AUTH = "https://appcenter.intuit.com/connect/oauth2";
 
@@ -139,6 +141,47 @@ export async function GET(request: NextRequest) {
   if (upErr) {
     return serverError(upErr.message);
   }
+
+  // Kick off the initial invoice sync after the response sends. Without this
+  // the merchant just connected QB, lands on Dashboard, and sees an empty
+  // table for up to 24h (until daily cron) — destroying the first-30-min
+  // wow moment. `after()` defers the work past the redirect so the user
+  // doesn't wait on the QB query API.
+  const userId = user.id;
+  after(async () => {
+    try {
+      await syncInvoicesForUser(admin, userId, qbToken);
+      await admin
+        .from("users")
+        .update({
+          quickbooks_synced_at: new Date().toISOString(),
+          quickbooks_sync_error: null,
+          quickbooks_sync_error_at: null,
+        })
+        .eq("id", userId);
+      logInfo({
+        route: "auth.quickbooks",
+        event: "initial_sync.complete",
+        userId,
+      });
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Initial QuickBooks sync failed";
+      await admin
+        .from("users")
+        .update({
+          quickbooks_sync_error: message.slice(0, 500),
+          quickbooks_sync_error_at: new Date().toISOString(),
+        })
+        .eq("id", userId);
+      logError({
+        route: "auth.quickbooks",
+        event: "initial_sync.failed",
+        userId,
+        err,
+      });
+    }
+  });
 
   const cookieStoreAfter = await cookies();
   const returnPath = cookieStoreAfter.get("qb_oauth_return")?.value;

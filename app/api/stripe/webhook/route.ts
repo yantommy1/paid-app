@@ -109,6 +109,26 @@ export async function POST(request: NextRequest) {
   const admin = createAdminClient();
   const stripe = getStripe();
 
+  // Stripe retries on any 5xx and may also redeliver on transient network
+  // blips. Without idempotency a redelivered `payment_intent.succeeded`
+  // could double-record a payment or double-charge platform fees. We use
+  // `processed_stripe_events` as a write-once log keyed by event.id —
+  // duplicates short-circuit before any side effects run.
+  const { data: alreadyProcessed } = await admin
+    .from("processed_stripe_events")
+    .select("event_id")
+    .eq("event_id", event.id)
+    .maybeSingle();
+  if (alreadyProcessed) {
+    logInfo({
+      route: "stripe.webhook",
+      event: "duplicate_event.skipped",
+      stripeEventId: event.id,
+      stripeEventType: event.type,
+    });
+    return NextResponse.json({ received: true, duplicate: true });
+  }
+
   switch (event.type) {
     case "checkout.session.completed": {
       const session = event.data.object as Stripe.Checkout.Session;
@@ -287,6 +307,28 @@ export async function POST(request: NextRequest) {
     }
     default:
       break;
+  }
+
+  // Mark the event processed only after the switch completed without
+  // throwing — if a handler returned 500 (we want Stripe to retry) we
+  // never reach here, so the event stays unmarked. Conflict on the
+  // primary key is fine (e.g. two concurrent deliveries of the same id).
+  const { error: markErr } = await admin
+    .from("processed_stripe_events")
+    .upsert(
+      { event_id: event.id, event_type: event.type },
+      { onConflict: "event_id", ignoreDuplicates: true }
+    );
+  if (markErr) {
+    logError({
+      route: "stripe.webhook",
+      event: "idempotency_mark.failed",
+      stripeEventId: event.id,
+      stripeEventType: event.type,
+      err: markErr,
+    });
+    // Don't fail the webhook — Stripe got a successful handler. Worst case
+    // a redelivery re-runs an idempotent handler.
   }
 
   return NextResponse.json({ received: true });
