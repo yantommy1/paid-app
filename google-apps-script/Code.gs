@@ -12,7 +12,7 @@
  */
 
 /** Deployed add-on version (bump when publishing a new deployment). */
-var VERSION = '1.2.4';
+var VERSION = '1.2.5';
 
 var PROP_API = 'PAID_API_BASE';
 var PROP_API_KEY = 'PAID_API_KEY';
@@ -394,12 +394,12 @@ function buildReplyDraftUrl_(classificationRow, clientEmail) {
         "I'll pull our records and get back to you today.\n\n" +
         'Thanks,\n' + ownName;
       break;
-    case 'thank_you':
-    case 'paid':
+    case 'paid_already':
       body =
         'Hi,\n\n' +
-        "Appreciate the confirmation. I'll mark this received once it posts on our end — " +
-        "let me know if you need a receipt.\n\n" +
+        "Thanks for letting me know — I'll double-check our records. " +
+        "If you have a check number, transfer date, or screenshot, that would help me reconcile faster. " +
+        "I'll confirm receipt as soon as it shows up on our side.\n\n" +
         'Thanks,\n' + ownName;
       break;
     default:
@@ -664,9 +664,13 @@ function onStartStripeConnect(e) {
  * Gmail, so the "Stripe connected" state shows immediately.
  */
 function buildStripeConnectCard_(onboardingUrl) {
-  var card = CardService.newCardBuilder().setHeader(
-    CardService.newCardHeader().setTitle('Connect Stripe').setSubtitle('One-time setup, ~3 minutes')
-  );
+  var card = CardService.newCardBuilder()
+    .setDisplayStyle(CardService.DisplayStyle.REPLACE)
+    .setHeader(
+      CardService.newCardHeader()
+        .setTitle('Connect Stripe')
+        .setSubtitle('One-time setup, ~3 minutes')
+    );
   var sec = CardService.newCardSection();
   sec.addWidget(
     CardService.newTextParagraph().setText(
@@ -1535,7 +1539,9 @@ function buildContextualForMessage_(e) {
     tryIdentityExchange_();
   }
   if (!getApiKey_() || !getApiBase_()) {
-    var c = CardService.newCardBuilder().setHeader(CardService.newCardHeader().setTitle('Paid'));
+    var c = CardService.newCardBuilder()
+      .setDisplayStyle(CardService.DisplayStyle.REPLACE)
+      .setHeader(CardService.newCardHeader().setTitle('Paid'));
     c.addSection(buildSettingsSection_());
     return c.build();
   }
@@ -1582,7 +1588,9 @@ function buildContextualForCompose_(e) {
     tryIdentityExchange_();
   }
   if (!getApiKey_() || !getApiBase_()) {
-    var c = CardService.newCardBuilder().setHeader(CardService.newCardHeader().setTitle('Paid'));
+    var c = CardService.newCardBuilder()
+      .setDisplayStyle(CardService.DisplayStyle.REPLACE)
+      .setHeader(CardService.newCardHeader().setTitle('Paid'));
     c.addSection(buildSettingsSection_());
     return c.build();
   }
@@ -1629,9 +1637,15 @@ function onRefreshContextualCompose(e) {
 
 function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
   try {
-  var builder = CardService.newCardBuilder().setHeader(
-    CardService.newCardHeader().setTitle('Paid').setSubtitle('This contact')
-  );
+  // setDisplayStyle(REPLACE) is the ONLY way to suppress Gmail Mobile's
+  // automatic PEEK chrome (the Cancel/View buttons at the bottom of the
+  // overlay). Without it, every contextual return defaults to PEEK on
+  // mobile. Verified against Apps Script CardBuilder docs.
+  var builder = CardService.newCardBuilder()
+    .setDisplayStyle(CardService.DisplayStyle.REPLACE)
+    .setHeader(
+      CardService.newCardHeader().setTitle('Paid').setSubtitle('This contact')
+    );
   // Track whether we added any content. If we get to the end with zero
   // sections, we always render a useful fallback — the user should never
   // see a card with only a header (the blank "after send" state Tommy
@@ -2089,6 +2103,7 @@ function buildReviewQueueCard_(queue) {
 
 function buildNotifyCard_(text, refreshFunctionName) {
   var card = CardService.newCardBuilder()
+    .setDisplayStyle(CardService.DisplayStyle.REPLACE)
     .setHeader(
       CardService.newCardHeader()
         .setTitle('Paid')
