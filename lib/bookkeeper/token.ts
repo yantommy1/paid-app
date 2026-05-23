@@ -66,6 +66,12 @@ export async function resolveBookkeeperTokenDetailed(
     };
   }
 
+  // Classifier ok=true implies invite is non-null, but TS can't infer the
+  // cross-function narrowing — explicit guard keeps types honest.
+  if (!invite) {
+    return { ok: false, reason: "not_found" };
+  }
+
   const now = new Date().toISOString();
   await admin
     .from("bookkeeper_invites")
