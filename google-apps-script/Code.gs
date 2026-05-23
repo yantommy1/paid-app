@@ -12,7 +12,7 @@
  */
 
 /** Deployed add-on version (bump when publishing a new deployment). */
-var VERSION = '1.1.0';
+var VERSION = '1.2.0';
 
 var PROP_API = 'PAID_API_BASE';
 var PROP_API_KEY = 'PAID_API_KEY';
@@ -1012,7 +1012,12 @@ function appendInvoiceBlock_(section, row, withDivider) {
  * of the sidebar render instantly. The Refresh button bypasses the cache.
  */
 var HOME_PACK_CACHE_KEY = 'paid_home_pack_cache';
-var HOME_PACK_TTL_MS = 60 * 1000;
+// 5 min — invoices change once per day (QB sync) so freshness within 5 min
+// is fine, and this kills the cache-miss hit on virtually every click during
+// a normal usage burst. Refresh button still busts the cache for an
+// on-demand re-fetch.
+var HOME_PACK_TTL_MS = 5 * 60 * 1000;
+var HOME_PACK_TTL_S = Math.floor(HOME_PACK_TTL_MS / 1000);
 
 function fetchGmailSidebarPack_(forceRefresh) {
   if (!forceRefresh) {
@@ -1040,13 +1045,40 @@ function fetchGmailSidebarPack_(forceRefresh) {
   return { ok: false, statusCode: primary.statusCode, body: primary.body };
 }
 
+/**
+ * Two-layer cache for the home-pack response:
+ * - CacheService (memcached-backed, ~5ms reads) — fast path
+ * - PropertiesService (DB-backed, ~50-100ms reads) — survives memcached eviction
+ *
+ * Most clicks during a usage burst hit the memcache and render near-instantly.
+ * The persistent layer is the safety net for the first click after memcache
+ * eviction (Apps Script may evict at any time, but in practice memcache lasts
+ * 6h+ for active users).
+ */
 function readHomePackCache_() {
+  try {
+    var memRaw = CacheService.getUserCache().get(HOME_PACK_CACHE_KEY);
+    if (memRaw) {
+      var memEntry = JSON.parse(memRaw);
+      if (memEntry && memEntry.savedAt && memEntry.data &&
+          Date.now() - memEntry.savedAt <= HOME_PACK_TTL_MS) {
+        return memEntry.data;
+      }
+    }
+  } catch (memErr) {
+    // CacheService transient errors — fall through to PropertiesService.
+  }
   try {
     var raw = PropertiesService.getUserProperties().getProperty(HOME_PACK_CACHE_KEY);
     if (!raw) return null;
     var entry = JSON.parse(raw);
     if (!entry || !entry.savedAt || !entry.data) return null;
     if (Date.now() - entry.savedAt > HOME_PACK_TTL_MS) return null;
+    // Repopulate the memcache on a fresh-from-Properties read so the next
+    // click within TTL is sub-10ms.
+    try {
+      CacheService.getUserCache().put(HOME_PACK_CACHE_KEY, raw, HOME_PACK_TTL_S);
+    } catch (refillErr) { /* ignore */ }
     return entry.data;
   } catch (err) {
     return null;
@@ -1054,17 +1086,25 @@ function readHomePackCache_() {
 }
 
 function writeHomePackCache_(data) {
+  var payload = JSON.stringify({ savedAt: Date.now(), data: data });
   try {
-    PropertiesService.getUserProperties().setProperty(
-      HOME_PACK_CACHE_KEY,
-      JSON.stringify({ savedAt: Date.now(), data: data })
-    );
+    // Memcache first — fast and what subsequent reads will hit.
+    CacheService.getUserCache().put(HOME_PACK_CACHE_KEY, payload, HOME_PACK_TTL_S);
+  } catch (memErr) {
+    // CacheService has a 100KB per-entry limit; if home-pack is somehow
+    // larger we skip the memcache and rely on PropertiesService.
+  }
+  try {
+    PropertiesService.getUserProperties().setProperty(HOME_PACK_CACHE_KEY, payload);
   } catch (err) {
     // Properties has size limits; on overflow just skip the cache.
   }
 }
 
 function clearHomePackCache_() {
+  try {
+    CacheService.getUserCache().remove(HOME_PACK_CACHE_KEY);
+  } catch (memErr) { /* ignore */ }
   try {
     PropertiesService.getUserProperties().deleteProperty(HOME_PACK_CACHE_KEY);
   } catch (err) {
@@ -1832,7 +1872,15 @@ function paidFetchWithRecovery_(path, opts, didRetry, stepName) {
   };
 
   if (result.statusCode === 401 && !didRetry) {
-    if (refreshApiKey_()) {
+    // Two-step recovery so the user never sees the Reconnect card if their
+    // Google identity is still valid:
+    //   1) refreshApiKey_() — fast path; uses the existing key to mint a new
+    //      one (works for rotations/extensions).
+    //   2) tryIdentityExchange_() — fallback when the existing key is fully
+    //      invalidated server-side (e.g., user revoked, regenerated, or the
+    //      server pruned). Uses a fresh Google identity token with no
+    //      dependence on the dead key.
+    if (refreshApiKey_() || tryIdentityExchange_()) {
       return paidFetchWithRecovery_(path, opts, true, stepName);
     }
     var reconnectErr = new Error('API key refresh failed');
@@ -1891,13 +1939,21 @@ function getApiKeyExpiry_() {
   return isNaN(n) ? 0 : n;
 }
 
+var PROP_LAST_REFRESH_ATTEMPT_AT = 'PAID_LAST_REFRESH_ATTEMPT_AT';
+
 function maybeProactiveRefresh_() {
   var exp = getApiKeyExpiry_();
   if (!exp) return;
   var threeDays = 3 * 24 * 60 * 60 * 1000;
-  if (Date.now() >= exp - threeDays) {
-    refreshApiKey_();
-  }
+  if (Date.now() < exp - threeDays) return;
+  // Throttle: once a refresh attempt has run in the last hour, don't retry
+  // on every card render. Prevents a stuck refresh (e.g., temporary backend
+  // outage) from blowing 1s on every click during a usage burst.
+  var props = PropertiesService.getUserProperties();
+  var lastRaw = Number(props.getProperty(PROP_LAST_REFRESH_ATTEMPT_AT) || 0);
+  if (Date.now() - lastRaw < 60 * 60 * 1000) return;
+  props.setProperty(PROP_LAST_REFRESH_ATTEMPT_AT, String(Date.now()));
+  refreshApiKey_();
 }
 
 function buildReconnectCard_(message) {
