@@ -12,7 +12,7 @@
  */
 
 /** Deployed add-on version (bump when publishing a new deployment). */
-var VERSION = '1.2.5';
+var VERSION = '1.2.6';
 
 var PROP_API = 'PAID_API_BASE';
 var PROP_API_KEY = 'PAID_API_KEY';
@@ -1637,6 +1637,16 @@ function onRefreshContextualCompose(e) {
 
 function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
   try {
+  // Detect whether the OPEN message is the merchant's own outbound (i.e.,
+  // they're looking at a reminder they just sent, or scrolled up to one of
+  // their previous sends). When outbound we suppress the misleading
+  // "Classify with Paid" reply prompt and re-title the header so it reads
+  // as a "you just sent this" confirmation instead of generic "This contact".
+  var ownAddrEarly = getOwnEmailLower_();
+  var isOutbound =
+    replyContext && replyContext.fromEmail && replyContext.fromEmail === ownAddrEarly;
+  var headerSubtitle = isOutbound ? 'Sent · client A/R below' : 'This contact';
+
   // setDisplayStyle(REPLACE) is the ONLY way to suppress Gmail Mobile's
   // automatic PEEK chrome (the Cancel/View buttons at the bottom of the
   // overlay). Without it, every contextual return defaults to PEEK on
@@ -1644,7 +1654,7 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
   var builder = CardService.newCardBuilder()
     .setDisplayStyle(CardService.DisplayStyle.REPLACE)
     .setHeader(
-      CardService.newCardHeader().setTitle('Paid').setSubtitle('This contact')
+      CardService.newCardHeader().setTitle('Paid').setSubtitle(headerSubtitle)
     );
   // Track whether we added any content. If we get to the end with zero
   // sections, we always render a useful fallback — the user should never
@@ -1784,6 +1794,20 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
             )
         )
       );
+    } else if (isOutbound) {
+      // The open message is the merchant's own outbound. Don't show the
+      // "Classify with Paid" reply prompt (it's misleading — there's no
+      // client reply to classify yet). Instead, show a tight confirmation
+      // strip so the user knows the send completed and where to look next.
+      classifySec.addWidget(
+        CardService.newDecoratedText()
+          .setTopLabel('You just sent this reminder')
+          .setText('Sent · waiting on client')
+          .setBottomLabel(
+            "We'll classify the client's reply automatically when it arrives."
+          )
+          .setWrapText(true)
+      );
     } else {
       classifySec.addWidget(
         CardService.newDecoratedText()
@@ -1801,7 +1825,7 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
                 .setFunctionName('onClassifyReply')
                 .setParameters({
                   messageId: replyContext.messageId,
-                  fromEmail: replyContext.fromEmail,
+                  fromEmail: clientEmailForClassify || replyContext.fromEmail,
                 })
             )
         )
@@ -2275,9 +2299,11 @@ function maybeProactiveRefresh_() {
 }
 
 function buildReconnectCard_(message) {
-  var card = CardService.newCardBuilder().setHeader(
-    CardService.newCardHeader().setTitle('Paid').setSubtitle('Reconnect required - v' + VERSION)
-  );
+  var card = CardService.newCardBuilder()
+    .setDisplayStyle(CardService.DisplayStyle.REPLACE)
+    .setHeader(
+      CardService.newCardHeader().setTitle('Paid').setSubtitle('Reconnect required - v' + VERSION)
+    );
   card.addSection(
     CardService.newCardSection()
       .addWidget(CardService.newTextParagraph().setText(message))
@@ -2313,9 +2339,11 @@ function buildDiagnosticCard_(step, kind, msg, refreshFunctionName) {
     (kind === 'auth' ? 'auth error' : 'network error') +
     '\n' +
     msg;
-  var card = CardService.newCardBuilder().setHeader(
-    CardService.newCardHeader().setTitle('Paid').setSubtitle('Diagnostics - v' + VERSION)
-  );
+  var card = CardService.newCardBuilder()
+    .setDisplayStyle(CardService.DisplayStyle.REPLACE)
+    .setHeader(
+      CardService.newCardHeader().setTitle('Paid').setSubtitle('Diagnostics - v' + VERSION)
+    );
   card.addSection(
     CardService.newCardSection()
       .addWidget(CardService.newTextParagraph().setText(details))
@@ -2713,9 +2741,11 @@ function onClassifyReply(e) {
 
 function buildClassificationResultCard_(data, fromEmail) {
   var headline = classificationHeadline_(data.classification);
-  var card = CardService.newCardBuilder().setHeader(
-    CardService.newCardHeader().setTitle('Reply read').setSubtitle(headline)
-  );
+  var card = CardService.newCardBuilder()
+    .setDisplayStyle(CardService.DisplayStyle.REPLACE)
+    .setHeader(
+      CardService.newCardHeader().setTitle('Reply read').setSubtitle(headline)
+    );
 
   var sec = CardService.newCardSection();
   if (fromEmail) {
