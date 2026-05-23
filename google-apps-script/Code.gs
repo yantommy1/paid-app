@@ -12,7 +12,7 @@
  */
 
 /** Deployed add-on version (bump when publishing a new deployment). */
-var VERSION = '1.2.9';
+var VERSION = '1.3.0';
 
 var PROP_API = 'PAID_API_BASE';
 var PROP_API_KEY = 'PAID_API_KEY';
@@ -1073,21 +1073,12 @@ function formatHeaderLine_(header) {
   if (!header) return '';
   var total = fmtMoney_(header.totalOutstanding);
   var clients = header.overdueClientCount || 0;
-  var avg = header.avgDaysOverdue || 0;
-  var sep = ' \u00b7 ';
-  return (
-    total +
-    ' outstanding' +
-    sep +
-    clients +
-    ' client' +
-    (clients === 1 ? '' : 's') +
-    ' overdue' +
-    sep +
-    'avg ' +
-    avg +
-    ' days'
-  );
+  // Hero is the dollar amount. Client count is supporting context. We
+  // dropped "avg N days" \u2014 it's a metric that doesn't drive action and was
+  // making the subtitle feel like a stats dump. Cohort breakdown below
+  // shows the age distribution anyway.
+  if (!clients) return total + ' outstanding';
+  return total + ' outstanding \u00b7 ' + clients + (clients === 1 ? ' client' : ' clients');
 }
 
 function formatDueDate_(iso) {
@@ -1112,11 +1103,16 @@ function severityDotUrl_(days) {
 function buildCohortRow_(dotUrl, label, cohort) {
   var c = cohort || { total: 0, count: 0 };
   var cnt = n_(c.count);
-  var invWord = cnt === 1 ? 'invoice' : 'invoices';
+  // Inverted hierarchy: the dollar amount is the hero (large text), the age
+  // bucket is the context label (small top label), invoice count is the
+  // caption (small bottom label). Before this, the AGE was hero and the
+  // amount was hidden in a bottom subtitle \u2014 backwards from what the user
+  // is scanning for.
   return CardService.newDecoratedText()
     .setStartIcon(CardService.newIconImage().setIconUrl(dotUrl))
-    .setText(label)
-    .setBottomLabel(fmtMoneyCompact_(c.total) + ' \u00b7 ' + cnt + ' ' + invWord);
+    .setTopLabel(label)
+    .setText(fmtMoneyCompact_(c.total))
+    .setBottomLabel(cnt === 0 ? 'no invoices' : (cnt === 1 ? '1 invoice' : cnt + ' invoices'));
 }
 
 function appendInvoiceBlock_(section, row, withDivider) {
@@ -1125,36 +1121,20 @@ function appendInvoiceBlock_(section, row, withDivider) {
   }
   var dotUrl = severityDotUrl_(row.days_overdue);
   var d = Number(row.days_overdue) || 0;
-  var daysText;
-  if (d >= 90) {
-    daysText = d + ' days overdue - urgent';
-  } else if (d >= 60) {
-    daysText = d + ' days overdue';
-  } else if (d >= 30) {
-    daysText = d + ' days overdue';
-  } else {
-    daysText = d + ' days';
-  }
-  var dueLine = formatDueDate_(row.due_date);
-  var bottomLine = daysText;
-  if (dueLine) {
-    bottomLine = bottomLine + ' \u00b7 ' + dueLine;
-  }
+  // One single, scannable bottom line. Dropped " - urgent" suffix (the dot
+  // color carries severity), dropped "Due {date}" (redundant with days
+  // overdue), dropped "Last reminder" extra row (it bloated the layout and
+  // wasn't actionable info at this view \u2014 surfaces in the per-invoice
+  // History card when needed).
+  var bottomLine = (d > 0 ? d + ' days overdue' : 'current');
   section.addWidget(
     CardService.newDecoratedText()
       .setStartIcon(CardService.newIconImage().setIconUrl(dotUrl))
       .setTopLabel(row.client_name || 'Client')
       .setText(fmtMoney_(row.amount))
       .setBottomLabel(bottomLine)
+      .setWrapText(true)
   );
-  // Show last reminder date inline if we have it.
-  if (row.reminder_sent_at) {
-    section.addWidget(
-      CardService.newDecoratedText()
-        .setTopLabel('Last reminder')
-        .setText(String(row.reminder_sent_at).slice(0, 10))
-    );
-  }
 
   section.addWidget(
     CardService.newButtonSet()
@@ -1375,13 +1355,14 @@ function buildHomePage_(e) {
     // nothing overdue (clean empty state).
     var listSec = CardService.newCardSection();
     if (!overdue.length) {
+      // Single-line empty state. No "you are caught up" reward copy.
       listSec.addWidget(
         CardService.newDecoratedText()
-          .setText('No overdue invoices')
-          .setBottomLabel('You are caught up.')
+          .setStartIcon(CardService.newIconImage().setIconUrl(DOT_OK))
+          .setText('Nothing overdue')
       );
     } else {
-      listSec.setHeader('Action queue · ' + overdue.length + ' overdue');
+      listSec.setHeader(overdue.length === 1 ? '1 overdue' : overdue.length + ' overdue');
       overdue.slice(0, 25).forEach(function (row, idx) {
         appendInvoiceBlock_(listSec, row, idx > 0);
       });
