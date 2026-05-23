@@ -12,7 +12,7 @@
  */
 
 /** Deployed add-on version (bump when publishing a new deployment). */
-var VERSION = '1.2.2';
+var VERSION = '1.2.3';
 
 var PROP_API = 'PAID_API_BASE';
 var PROP_API_KEY = 'PAID_API_KEY';
@@ -343,6 +343,75 @@ function formatShortDate_(iso) {
   var monthIdx = parseInt(m[2], 10) - 1;
   if (monthIdx < 0 || monthIdx > 11) return datePart;
   return months[monthIdx] + ' ' + parseInt(m[3], 10);
+}
+
+/**
+ * Build a Gmail compose URL prefilled with a templated response keyed to the
+ * classifier's verdict. This is the "Draft response" button on classified
+ * replies — the merchant taps it, Gmail opens a new compose with subject +
+ * body already in place, they edit if needed and click Send.
+ *
+ * We do the templating client-side (no server round-trip) so the button
+ * always fires fast and works even if the backend is mid-deploy.
+ */
+function buildReplyDraftUrl_(classificationRow, clientEmail) {
+  var kind = (classificationRow && classificationRow.classification) || 'other';
+  var promisedDate = (classificationRow && classificationRow.promisedPayDate) || '';
+  var ownName = getUserDisplayName_() || 'Paid';
+  var body;
+  switch (kind) {
+    case 'will_pay_later':
+      body =
+        'Hi,\n\n' +
+        'Thanks for the update — really appreciate you keeping me posted. ' +
+        (promisedDate
+          ? "I'll plan to check in shortly after " + promisedDate + '. '
+          : "I'll plan to follow up around your expected date. ") +
+        "Let me know if anything changes before then.\n\n" +
+        'Thanks,\n' + ownName;
+      break;
+    case 'cannot_pay':
+      body =
+        'Hi,\n\n' +
+        "Thanks for being upfront — appreciate it. Let's find something that works on both ends. " +
+        "Happy to set up a payment plan, accept a partial payment, or extend the due date. " +
+        "What feels reasonable for you this month?\n\n" +
+        'Thanks,\n' + ownName;
+      break;
+    case 'payment_plan_request':
+      body =
+        'Hi,\n\n' +
+        "Happy to work with you on this. Two options that work on our end:\n" +
+        "  - 3 monthly installments (equal thirds)\n" +
+        "  - 50% now, 50% in 30 days\n\n" +
+        "Either works, or if a different schedule fits your cash flow, just let me know.\n\n" +
+        'Thanks,\n' + ownName;
+      break;
+    case 'invoice_issue':
+      body =
+        'Hi,\n\n' +
+        "Thanks for flagging this. Could you tell me which line item is the concern? " +
+        "I'll pull our records and get back to you today.\n\n" +
+        'Thanks,\n' + ownName;
+      break;
+    case 'thank_you':
+    case 'paid':
+      body =
+        'Hi,\n\n' +
+        "Appreciate the confirmation. I'll mark this received once it posts on our end — " +
+        "let me know if you need a receipt.\n\n" +
+        'Thanks,\n' + ownName;
+      break;
+    default:
+      body =
+        'Hi,\n\n' +
+        "Thanks for the note. Let me know if there's anything else I can help with from my side.\n\n" +
+        'Thanks,\n' + ownName;
+  }
+  return 'https://mail.google.com/mail/?view=cm&fs=1' +
+    '&to=' + encodeURIComponent(clientEmail || '') +
+    '&su=' + encodeURIComponent('Re: Your invoice') +
+    '&body=' + encodeURIComponent(body);
 }
 
 /**
@@ -1564,17 +1633,44 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
     CardService.newCardHeader().setTitle('Paid').setSubtitle('This contact')
   );
 
-  // If this card is rendering for an OPEN message (not compose) and the message is
-  // from one of the contact emails (i.e. a reply), classify automatically and
-  // surface the result inline. Auto-classify is server-side dedup'd so we
-  // don't burn an LLM call per render — see /api/replies/classify (auto:true).
-  if (replyContext && replyContext.messageId && replyContext.fromEmail) {
+  // Auto-classify only when the OPEN message is INBOUND from a client.
+  // Previously we classified any thread with a fromEmail, which meant Tommy's
+  // own SENT reminders were getting classified as "replies" (nonsense LLM
+  // output, no invoice_id linked, never surfaced anywhere useful). The fix:
+  //   - fromEmail must be set
+  //   - fromEmail must NOT be the merchant's own address
+  //   - If From is somehow the merchant's own (e.g., re-opened a draft),
+  //     fall back to the first non-self participant for the lookup so we
+  //     still link the classification to the right client invoice.
+  var ownAddr = getOwnEmailLower_();
+  var clientEmailForClassify = '';
+  if (replyContext && replyContext.fromEmail) {
+    if (replyContext.fromEmail !== ownAddr) {
+      clientEmailForClassify = replyContext.fromEmail;
+    } else {
+      for (var fi = 0; fi < emails.length; fi++) {
+        if (emails[fi] && emails[fi] !== ownAddr) {
+          clientEmailForClassify = emails[fi];
+          break;
+        }
+      }
+    }
+  }
+  var shouldAutoClassify =
+    replyContext &&
+    replyContext.messageId &&
+    replyContext.fromEmail &&
+    replyContext.fromEmail !== ownAddr;
+
+  if (replyContext && replyContext.messageId && clientEmailForClassify) {
     var prior = fetchPriorClassificationsForThread_(replyContext.messageId);
 
-    // Cache miss: kick off auto-classification once. The result will appear on
-    // next refresh of this card. (We can't synchronously read the message body
-    // and classify here without making the open-thread render slow.)
-    if ((!prior || prior.length === 0) && replyContext.accessToken) {
+    // Cache miss + actually-inbound message: kick off auto-classification once.
+    if (
+      shouldAutoClassify &&
+      (!prior || prior.length === 0) &&
+      replyContext.accessToken
+    ) {
       try {
         var bodyText = fetchMessagePlainText_(replyContext.messageId, replyContext.accessToken);
         if (bodyText) {
@@ -1582,7 +1678,7 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
             method: 'post',
             payload: JSON.stringify({
               threadId: replyContext.messageId,
-              clientEmail: replyContext.fromEmail,
+              clientEmail: clientEmailForClassify,
               replyText: bodyText,
               auto: true,
             }),
@@ -1618,6 +1714,23 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
           .setBottomLabel(bottomBits.join(' · '))
           .setWrapText(true)
       );
+      // Primary CTA: draft a reply tailored to the classification. Opens
+      // Gmail compose with subject + body prefilled; user edits and clicks
+      // Send themselves. This is the "suggested reply" Tommy was missing.
+      var draftReplyUrl = buildReplyDraftUrl_(last, clientEmailForClassify);
+      classifySec.addWidget(
+        CardService.newButtonSet().addButton(
+          CardService.newTextButton()
+            .setText('Draft response')
+            .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+            .setOpenLink(
+              CardService.newOpenLink()
+                .setUrl(draftReplyUrl)
+                .setOpenAs(CardService.OpenAs.FULL_SIZE)
+            )
+        )
+      );
+
       if (
         last.invoiceId &&
         (last.classification === 'cannot_pay' || last.classification === 'payment_plan_request')
@@ -1625,7 +1738,7 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
         classifySec.addWidget(
           CardService.newButtonSet().addButton(
             CardService.newTextButton()
-              .setText('Suggest payment plan')
+              .setText('Payment plan offer')
               .setTextButtonStyle(CardService.TextButtonStyle.OUTLINED)
               .setOnClickAction(
                 CardService.newAction()
@@ -1639,13 +1752,13 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
         CardService.newButtonSet().addButton(
           CardService.newTextButton()
             .setText('Re-classify')
-            .setTextButtonStyle(CardService.TextButtonStyle.OUTLINED)
+            .setTextButtonStyle(CardService.TextButtonStyle.TEXT)
             .setOnClickAction(
               CardService.newAction()
                 .setFunctionName('onClassifyReply')
                 .setParameters({
                   messageId: replyContext.messageId,
-                  fromEmail: replyContext.fromEmail,
+                  fromEmail: clientEmailForClassify,
                 })
             )
         )
