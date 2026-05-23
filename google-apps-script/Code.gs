@@ -12,7 +12,7 @@
  */
 
 /** Deployed add-on version (bump when publishing a new deployment). */
-var VERSION = '1.2.0';
+var VERSION = '1.2.1';
 
 var PROP_API = 'PAID_API_BASE';
 var PROP_API_KEY = 'PAID_API_KEY';
@@ -505,8 +505,18 @@ function buildInvoiceHistoryCard_(data) {
 }
 
 /**
- * Action: open Stripe Connect onboarding in a new tab so the merchant can
- * set up payments without leaving Gmail to find Settings.
+ * Action: open Stripe Connect onboarding so the merchant can set up payments
+ * without leaving Gmail.
+ *
+ * Why we push a card instead of returning setOpenLink directly:
+ *   - ActionResponseBuilder.setOpenLink is unreliable in Gmail Mobile add-ons
+ *     — the link silently never opens. The user clicks Connect Stripe and
+ *     sees nothing happen, which is exactly the "doesn't work" report.
+ *   - TextButton.setOpenLink (a *direct* link on the button widget) works in
+ *     both desktop and mobile because Gmail renders it as a native link.
+ *
+ * So: fetch the onboarding URL here, then push a card whose button has
+ * setOpenLink baked in. One extra tap, but it actually opens.
  */
 function onStartStripeConnect(e) {
   try {
@@ -520,22 +530,22 @@ function onStartStripeConnect(e) {
     }
     var data = JSON.parse(res.body);
     if (data.connected) {
+      // Already done — pop the user back to home; the Pay Now badge will now
+      // render in subsequent draft previews.
+      clearHomePackCache_();
       return CardService.newActionResponseBuilder()
         .setNotification(
-          CardService.newNotification().setText('Stripe is already connected. Reload the home card.')
+          CardService.newNotification().setText('Stripe is already connected. Pay Now buttons will appear in new drafts.')
         )
         .setNavigation(CardService.newNavigation().updateCard(buildHomePage_({})))
         .build();
     }
     if (data.onboardingUrl) {
       return CardService.newActionResponseBuilder()
-        .setOpenLink(
-          CardService.newOpenLink()
-            .setUrl(data.onboardingUrl)
-            .setOpenAs(CardService.OpenAs.OVERLAY)
-        )
-        .setNotification(
-          CardService.newNotification().setText('Opening Stripe — finish setup, then come back to Gmail.')
+        .setNavigation(
+          CardService.newNavigation().pushCard(
+            buildStripeConnectCard_(data.onboardingUrl)
+          )
         )
         .build();
     }
@@ -558,6 +568,49 @@ function onStartStripeConnect(e) {
       .setNotification(CardService.newNotification().setText('Could not start Stripe setup. Try again.'))
       .build();
   }
+}
+
+/**
+ * Intermediate card with a button whose setOpenLink is direct on the widget
+ * (works on mobile, unlike ActionResponse.setOpenLink). OnClose.RELOAD busts
+ * the home-pack cache and refreshes the sidebar when the user returns to
+ * Gmail, so the "Stripe connected" state shows immediately.
+ */
+function buildStripeConnectCard_(onboardingUrl) {
+  var card = CardService.newCardBuilder().setHeader(
+    CardService.newCardHeader().setTitle('Connect Stripe').setSubtitle('One-time setup, ~3 minutes')
+  );
+  var sec = CardService.newCardSection();
+  sec.addWidget(
+    CardService.newTextParagraph().setText(
+      'Stripe handles card + ACH for your invoices. After setup, every reminder includes a one-click Pay Now button.'
+    )
+  );
+  sec.addWidget(
+    CardService.newButtonSet().addButton(
+      CardService.newTextButton()
+        .setText('Open Stripe setup')
+        .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+        .setOpenLink(
+          CardService.newOpenLink()
+            .setUrl(onboardingUrl)
+            .setOpenAs(CardService.OpenAs.FULL_SIZE)
+            .setOnClose(CardService.OnClose.RELOAD_ADD_ON)
+        )
+    )
+  );
+  sec.addWidget(
+    CardService.newTextParagraph().setText(
+      'When you finish, Gmail will refresh the sidebar automatically.'
+    )
+  );
+  card.addSection(sec);
+  card.addCardAction(
+    CardService.newCardAction()
+      .setText('Back')
+      .setOnClickAction(CardService.newAction().setFunctionName('onBackHome'))
+  );
+  return card.build();
 }
 
 /**
