@@ -126,9 +126,9 @@ function onDraftReminder(e) {
         !!fallback.payNowIncluded,
         null
       );
+      // No toast — the draft is already visible in the next card.
       return CardService.newActionResponseBuilder()
         .setNavigation(CardService.newNavigation().pushCard(buildDraftPreviewCard_(String(id))))
-        .setNotification(CardService.newNotification().setText('Drafted. Adjust tone below.'))
         .build();
     }
     if (res.statusCode < 200 || res.statusCode >= 300) {
@@ -156,9 +156,11 @@ function onDraftReminder(e) {
       !!picked.payNowIncluded,
       allTones
     );
+    // No toast — the tone selector already shows "Friendly · Professional · Firm"
+    // with the active one highlighted, so a bottom toast saying the same thing
+    // just covers the draft body on mobile.
     return CardService.newActionResponseBuilder()
       .setNavigation(CardService.newNavigation().pushCard(buildDraftPreviewCard_(String(id))))
-      .setNotification(CardService.newNotification().setText('Drafted (' + autoTone + ' tone). Tap any tone to switch.'))
       .build();
   } catch (err) {
     if (err && err.name === 'PaidAuthReconnectError') {
@@ -311,6 +313,34 @@ function capitalize_(s) {
 }
 
 /**
+ * "2026-05-07T..." or "2026-05-07" → "May 7" so the History view reads as a
+ * timeline instead of a wall of identical YYYY-MM-DD strings.
+ */
+function formatShortDate_(iso) {
+  if (!iso || typeof iso !== 'string') return '';
+  var datePart = iso.length >= 10 ? iso.slice(0, 10) : iso;
+  var m = datePart.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return datePart;
+  var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var monthIdx = parseInt(m[2], 10) - 1;
+  if (monthIdx < 0 || monthIdx > 11) return datePart;
+  return months[monthIdx] + ' ' + parseInt(m[3], 10);
+}
+
+/**
+ * Minimal HTML escape for strings rendered with <b> wrappers in DecoratedText.
+ * Apps Script's setText accepts a limited HTML subset, so we just need to
+ * neutralize chars that could break tag parsing.
+ */
+function escapeHtml_(s) {
+  if (!s || typeof s !== 'string') return '';
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+/**
  * Action: load and render full timeline for one invoice (reminders sent,
  * replies classified, scheduled follow-ups). Surfaces "what happened" and
  * "what's planned next" so the merchant can see their A/R workflow at a
@@ -409,14 +439,17 @@ function buildInvoiceHistoryCard_(data) {
   } else {
     reminders.forEach(function (r, i) {
       if (i > 0) remSec.addWidget(CardService.newDivider());
+      // Subject is the most useful text — bold it. Top label is a friendly
+      // date. Bottom label is just the tone + pay-now indicator — dropped
+      // the internal channel string ("gmail-compose-addon") which leaked
+      // implementation detail to the user.
       var bits = [];
       if (r.tone) bits.push(capitalize_(r.tone) + ' tone');
       if (r.pay_link_included) bits.push('Pay Now included');
-      if (r.channel) bits.push(r.channel);
       remSec.addWidget(
         CardService.newDecoratedText()
-          .setTopLabel((r.created_at || '').slice(0, 10))
-          .setText(r.subject || '(no subject)')
+          .setTopLabel(formatShortDate_(r.created_at))
+          .setText('<b>' + escapeHtml_(r.subject || '(no subject)') + '</b>')
           .setBottomLabel(bits.join(' · '))
           .setWrapText(true)
       );
