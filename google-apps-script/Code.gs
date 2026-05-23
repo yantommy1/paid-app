@@ -12,7 +12,7 @@
  */
 
 /** Deployed add-on version (bump when publishing a new deployment). */
-var VERSION = '1.3.4';
+var VERSION = '1.3.6';
 
 var PROP_API = 'PAID_API_BASE';
 var PROP_API_KEY = 'PAID_API_KEY';
@@ -620,22 +620,42 @@ function buildInvoiceHistoryCard_(data) {
     });
     if (reminders.length > MAX_ROWS) {
       var hidden = reminders.length - MAX_ROWS;
+      // "+N earlier" is now a tappable TextButton (TEXT style) — pushes
+      // a card showing the full log. Was a flat TextParagraph that read
+      // like a non-actionable footer caption.
       remSec.addWidget(
-        CardService.newTextParagraph().setText(
-          '+' + hidden + ' earlier'
+        CardService.newButtonSet().addButton(
+          CardService.newTextButton()
+            .setText('+' + hidden + ' earlier')
+            .setTextButtonStyle(CardService.TextButtonStyle.TEXT)
+            .setOnClickAction(
+              CardService.newAction()
+                .setFunctionName('onShowFullReminderLog')
+                .setParameters({ invoiceId: String(inv.id) })
+            )
         )
       );
     }
     card.addSection(remSec);
   }
 
-  // Replies — only when there are any. Empty-state copy was misleading
-  // ("No replies classified yet" implies a queue of classifications) so
-  // we just omit the section when empty.
-  if (replies.length) {
-    var repSec = CardService.newCardSection().setHeader(
-      replies.length === 1 ? '1 reply' : replies.length + ' replies'
+  // Client responses — ALWAYS render the section, even when empty. Tommy's
+  // feedback: hiding it entirely felt like the system wasn't checking for
+  // replies. Empty state explains how a row appears here (so the user
+  // doesn't think the feature is missing or broken).
+  var repSec = CardService.newCardSection().setHeader(
+    replies.length === 0
+      ? 'Client responses'
+      : (replies.length === 1 ? '1 client response' : replies.length + ' client responses')
+  );
+  if (replies.length === 0) {
+    repSec.addWidget(
+      CardService.newDecoratedText()
+        .setText('No responses yet')
+        .setBottomLabel('When the client replies, Paid classifies it here and offers a drafted response.')
+        .setWrapText(true)
     );
+  } else {
     replies.forEach(function (rep, i) {
       if (i > 0) repSec.addWidget(CardService.newDivider());
       var bottom = '';
@@ -652,9 +672,95 @@ function buildInvoiceHistoryCard_(data) {
           .setWrapText(true)
       );
     });
-    card.addSection(repSec);
   }
+  card.addSection(repSec);
 
+  return card.build();
+}
+
+/**
+ * Action: expanded reminder log for a single invoice. Pushes a card that
+ * lists every reminder sent (no 5-row cap) so the merchant can audit the
+ * full timeline. Wired from the "+N earlier" link on the per-invoice
+ * History card.
+ */
+function onShowFullReminderLog(e) {
+  var p = (e && e.parameters) || {};
+  var id = p.invoiceId;
+  if (!id) {
+    return CardService.newActionResponseBuilder()
+      .setNotification(CardService.newNotification().setText('Missing invoice id'))
+      .build();
+  }
+  try {
+    var res = paidFetch_('/api/invoices/' + encodeURIComponent(id) + '/history', { method: 'get' });
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      return CardService.newActionResponseBuilder()
+        .setNotification(
+          CardService.newNotification().setText(userFacingApiError_(res.statusCode, res.body))
+        )
+        .build();
+    }
+    var data = JSON.parse(res.body);
+    return CardService.newActionResponseBuilder()
+      .setNavigation(
+        CardService.newNavigation().pushCard(buildFullReminderLogCard_(data))
+      )
+      .build();
+  } catch (err) {
+    if (err && err.name === 'PaidAuthReconnectError') {
+      return CardService.newActionResponseBuilder()
+        .setNavigation(
+          CardService.newNavigation().updateCard(
+            buildReconnectCard_('Your connection expired. Enter your API key below to reconnect.')
+          )
+        )
+        .build();
+    }
+    return CardService.newActionResponseBuilder()
+      .setNotification(CardService.newNotification().setText('Could not load reminders. Try again.'))
+      .build();
+  }
+}
+
+function buildFullReminderLogCard_(data) {
+  var inv = data.invoice || {};
+  var reminders = data.reminders || [];
+  var card = CardService.newCardBuilder()
+    .setDisplayStyle(CardService.DisplayStyle.REPLACE)
+    .setHeader(
+      CardService.newCardHeader()
+        .setTitle(inv.clientName || 'Client')
+        .setSubtitle(
+          (reminders.length === 1 ? '1 reminder sent' : reminders.length + ' reminders sent')
+        )
+    );
+  if (!reminders.length) {
+    card.addSection(
+      CardService.newCardSection().addWidget(
+        CardService.newTextParagraph().setText('No reminders sent yet.')
+      )
+    );
+    return card.build();
+  }
+  var sec = CardService.newCardSection();
+  reminders.forEach(function (r, i) {
+    if (i > 0) sec.addWidget(CardService.newDivider());
+    var label;
+    if (r.tone) {
+      label = capitalize_(r.tone);
+    } else {
+      label = 'Sent';
+    }
+    if (r.pay_link_included) label = label + ' · Pay Now';
+    sec.addWidget(
+      CardService.newDecoratedText()
+        .setStartIcon(CardService.newIconImage().setIcon(CardService.Icon.EMAIL))
+        .setText(label)
+        .setBottomLabel(formatTimestamp_(r.created_at))
+    );
+  });
+  card.addSection(sec);
   return card.build();
 }
 
@@ -1646,12 +1752,17 @@ function buildContextualForMessage_(e) {
   if (ownEmail) {
     emails = emails.filter(function (em) { return em !== ownEmail; });
   }
-  var fromEmail = extractFromEmail_(messageId, access);
+  // One metadata roundtrip gives us From + INBOX status. INBOX presence
+  // means the message was RECEIVED (vs only sent). The classify gate uses
+  // both: the message can be an inbound reply even when the From address
+  // is the merchant's own (self-test loop, alias-of-own-domain, forwarded).
+  var meta = extractMessageMeta_(messageId, access);
+  var fromEmail = meta.from;
+  var isInbox = meta.isInbox;
 
   // No useful contextual content for this thread — drop the merchant into
-  // the home dashboard view (cohorts, recent reminders, activity) instead
-  // of a dead-end "no client contacts on this thread" card. The home
-  // dashboard is always useful; the empty notify card never was.
+  // the home dashboard view instead of a dead-end "no client contacts on
+  // this thread" card. The home dashboard is always useful.
   if (!emails.length && (!fromEmail || fromEmail === ownEmail)) {
     return buildHomePage_({});
   }
@@ -1660,6 +1771,7 @@ function buildContextualForMessage_(e) {
     messageId: String(messageId),
     fromEmail: fromEmail,
     accessToken: access,
+    isInbox: isInbox,
   });
 }
 
@@ -1717,14 +1829,16 @@ function onRefreshContextualCompose(e) {
 
 function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
   try {
-  // Detect whether the OPEN message is the merchant's own outbound (i.e.,
-  // they're looking at a reminder they just sent, or scrolled up to one of
-  // their previous sends). When outbound we suppress the misleading
-  // "Classify with Paid" reply prompt and re-title the header so it reads
-  // as a "you just sent this" confirmation instead of generic "This contact".
+  // Detect whether the OPEN message is the merchant's own outbound (a
+  // reminder they sent, currently being viewed). The check is: From is
+  // own AND the message is NOT in INBOX. A self-reply (From own but
+  // INBOX label set) is NOT outbound — it's a received reply.
   var ownAddrEarly = getOwnEmailLower_();
   var isOutbound =
-    replyContext && replyContext.fromEmail && replyContext.fromEmail === ownAddrEarly;
+    replyContext &&
+    replyContext.fromEmail &&
+    replyContext.fromEmail === ownAddrEarly &&
+    replyContext.isInbox !== true;
   var headerSubtitle = isOutbound ? 'Sent' : 'Contact';
 
   // setDisplayStyle(REPLACE) is the ONLY way to suppress Gmail Mobile's
@@ -1767,11 +1881,17 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
       }
     }
   }
+  // New gate: classify any RECEIVED message (INBOX label present), even
+  // when the From: address is the merchant's own. This handles the
+  // self-reply test loop (Tommy replies to his own reminder from the same
+  // Gmail account) AND the case where a client replies from an alias of
+  // the merchant's domain. Outbound-only messages (SENT folder, no INBOX)
+  // still skip — those are reminders the merchant sent, not replies.
   var shouldAutoClassify =
     replyContext &&
     replyContext.messageId &&
     replyContext.fromEmail &&
-    replyContext.fromEmail !== ownAddr;
+    (replyContext.isInbox === true || replyContext.fromEmail !== ownAddr);
 
   if (replyContext && replyContext.messageId && clientEmailForClassify) {
     var prior = fetchPriorClassificationsForThread_(replyContext.messageId);
@@ -2716,26 +2836,57 @@ function getFormText_(form, name) {
 
 /** Read the From: header for a message and return the sender email (lowercased), or '' if unknown. */
 function extractFromEmail_(messageId, accessToken) {
+  var meta = extractMessageMeta_(messageId, accessToken);
+  return meta.from;
+}
+
+/**
+ * Single metadata fetch that returns both the sender email AND whether the
+ * message is in the user's INBOX. Used to fix the self-reply test loop:
+ * when Tommy replies from his own account to his own reminder, the From
+ * header is his own address but the message lands in INBOX. Without the
+ * label check, the old gate (fromEmail !== ownEmail) blocked it as "your
+ * own outbound" — even though it was actually a received reply.
+ *
+ * Returns { from: string, isInbox: boolean }.
+ */
+function extractMessageMeta_(messageId, accessToken) {
+  var empty = { from: '', isInbox: false };
   var url =
     'https://gmail.googleapis.com/gmail/v1/users/me/messages/' +
     encodeURIComponent(messageId) +
     '?format=metadata&metadataHeaders=From';
-  var resp = UrlFetchApp.fetch(url, {
-    headers: { Authorization: 'Bearer ' + accessToken },
-    muteHttpExceptions: true,
-    timeout: 10000,
-  });
-  if (resp.getResponseCode() !== 200) return '';
-  var json = JSON.parse(resp.getContentText());
+  var resp;
+  try {
+    resp = UrlFetchApp.fetch(url, {
+      headers: { Authorization: 'Bearer ' + accessToken },
+      muteHttpExceptions: true,
+    });
+  } catch (err) {
+    return empty;
+  }
+  if (resp.getResponseCode() !== 200) return empty;
+  var json;
+  try {
+    json = JSON.parse(resp.getContentText());
+  } catch (parseErr) {
+    return empty;
+  }
+  var labels = json.labelIds || [];
+  var isInbox = false;
+  for (var li = 0; li < labels.length; li++) {
+    if (labels[li] === 'INBOX') { isInbox = true; break; }
+  }
+  var from = '';
   var headers = (json.payload && json.payload.headers) || [];
   for (var i = 0; i < headers.length; i++) {
     var h = headers[i];
     if (h.name && h.name.toLowerCase() === 'from') {
       var emails = extractEmailsFromHeader_(h.value);
-      if (emails && emails.length) return emails[0];
+      if (emails && emails.length) { from = emails[0]; break; }
     }
   }
-  return '';
+  return { from: from, isInbox: isInbox };
 }
 
 /** Fetch a Gmail message and return its plain-text body (decoded). */
