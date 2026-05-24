@@ -12,7 +12,7 @@
  */
 
 /** Deployed add-on version (bump when publishing a new deployment). */
-var VERSION = '1.7.0';
+var VERSION = '1.7.1';
 
 var PROP_API = 'PAID_API_BASE';
 var PROP_API_KEY = 'PAID_API_KEY';
@@ -1378,6 +1378,32 @@ function isMessageSent_(messageId) {
  */
 var PROP_PENDING_SENDS = 'PAID_PENDING_SENDS';
 
+/**
+ * Stash for upgrade-required messages that surfaced from background work
+ * (e.g., a queued send getting 402'd inside flushPendingSends_). Read +
+ * cleared on the next home render so the user finds out about the cap
+ * trigger even though the original click was already gone.
+ */
+var PROP_UPGRADE_NUDGE = 'PAID_UPGRADE_NUDGE';
+
+function setUpgradeNudge_(message) {
+  try {
+    PropertiesService.getUserProperties().setProperty(
+      PROP_UPGRADE_NUDGE,
+      String(message || '').slice(0, 280)
+    );
+  } catch (err) { /* ignore — non-fatal */ }
+}
+
+function takeUpgradeNudge_() {
+  var props = PropertiesService.getUserProperties();
+  var msg = props.getProperty(PROP_UPGRADE_NUDGE) || '';
+  if (msg) {
+    try { props.deleteProperty(PROP_UPGRADE_NUDGE); } catch (e) { /* ignore */ }
+  }
+  return msg;
+}
+
 function queuePendingSend_(payload) {
   var props = PropertiesService.getUserProperties();
   var raw = props.getProperty(PROP_PENDING_SENDS) || '[]';
@@ -1425,20 +1451,29 @@ function flushPendingSends_() {
     // behavior — log immediately. Backward-compatible flush.
     if (!item.draftMessageId) {
       try {
-        paidFetch_('/api/invoices/send-reminder', {
+        var res = paidFetch_('/api/invoices/send-reminder', {
           method: 'post',
           payload: JSON.stringify(item),
         });
+        // 402 means the plan gate (Starter 50/month cap) tripped. Stash
+        // the message so the next home render can show it — the user
+        // already left the compose flow, so we can't notify in-line.
+        if (res && res.statusCode === 402) {
+          setUpgradeNudge_(userFacingApiError_(402, res.body));
+        }
       } catch (postErr) { /* skip */ }
       continue;
     }
     var sentState = isMessageSent_(item.draftMessageId);
     if (sentState === true) {
       try {
-        paidFetch_('/api/invoices/send-reminder', {
+        var sentRes = paidFetch_('/api/invoices/send-reminder', {
           method: 'post',
           payload: JSON.stringify(item),
         });
+        if (sentRes && sentRes.statusCode === 402) {
+          setUpgradeNudge_(userFacingApiError_(402, sentRes.body));
+        }
       } catch (postErr) { /* skip */ }
     } else if (sentState === false) {
       // Still drafted — keep in queue for the next render to check.
@@ -1983,19 +2018,37 @@ function buildHomePage_(e) {
     var cohorts = data.cohorts || {};
     var header = data.header || {};
     var invoices = data.invoices || [];
+    var plan = (data && typeof data.plan === 'string') ? data.plan : 'pro';
 
-    // Header: outstanding $ as the hero number. Version kept on the
-    // subtitle so you can verify which build is live after a clasp deploy
-    // (this is the only reliable in-app version surface).
+    // Header: outstanding $ as the hero number. Subtitle carries the plan
+    // badge (Starter/Pro) and version stamp — small, glanceable, doesn't
+    // dominate. The plan label tells users which gates apply to them
+    // without forcing them to open settings.
+    var planLabel = plan === 'starter' ? 'Starter' : 'Pro';
     card.setHeader(
       CardService.newCardHeader()
         .setTitle('Paid')
-        .setSubtitle(formatHeaderLine_(header) + ' · v' + VERSION)
+        .setSubtitle(formatHeaderLine_(header) + ' · ' + planLabel + ' · v' + VERSION)
     );
 
     var overdue = invoices.filter(function (r) {
       return (r.days_overdue || 0) >= 30;
     });
+
+    // Upgrade nudge — if a background send hit the Starter 50-cap while
+    // the user was away from the sidebar, takeUpgradeNudge_ surfaces the
+    // 402 message here as a top-of-card banner. Self-clearing.
+    var nudge = takeUpgradeNudge_();
+    if (nudge) {
+      var nudgeSec = CardService.newCardSection();
+      nudgeSec.addWidget(
+        CardService.newDecoratedText()
+          .setText('<font color="#C4863A"><b>Reminder didn\'t go out</b></font>')
+          .setBottomLabel(nudge)
+          .setWrapText(true)
+      );
+      card.addSection(nudgeSec);
+    }
 
     // Cohorts — the only summary section the user needs at-a-glance.
     // Section header dropped (the cohort labels speak for themselves) so
@@ -2063,6 +2116,20 @@ function buildHomePage_(e) {
         .setText('Sync from QuickBooks')
         .setOnClickAction(CardService.newAction().setFunctionName('onSyncQuickBooks'))
     );
+    // Upgrade card action only shown to Starter — opens the pricing page
+    // in a new tab. Card actions live in the kebab menu, so this stays
+    // visible but doesn't compete with primary CTAs.
+    if (plan === 'starter') {
+      var apiBase = getApiBase_() || 'https://paid-app.com';
+      card.addCardAction(
+        CardService.newCardAction()
+          .setText('Upgrade to Pro')
+          .setOpenLink(
+            CardService.newOpenLink()
+              .setUrl(apiBase.replace(/\/$/, '') + '/pricing')
+          )
+      );
+    }
 
     return card.build();
   } catch (err) {
@@ -3016,6 +3083,13 @@ function userFacingApiError_(statusCode, body) {
 
   if (c === 401 || c === 403) {
     return 'Paid rejected the request (auth)' + detail + '. Reconnect from Settings.';
+  }
+  if (c === 402) {
+    // v1.7.0+ plan gates respond 402 with {code: "UPGRADE_REQUIRED",
+    // feature, message}. The body's message is already user-friendly, so
+    // surface it directly with no extra prefix.
+    if (detail) return detail.replace(/^: /, '');
+    return 'This is a Pro feature. Upgrade in your Paid settings.';
   }
   if (c === 404) {
     return 'Paid endpoint missing (404)' + detail + '. The server may be deploying — try again in a minute.';
