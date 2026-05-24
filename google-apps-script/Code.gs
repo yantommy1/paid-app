@@ -12,7 +12,7 @@
  */
 
 /** Deployed add-on version (bump when publishing a new deployment). */
-var VERSION = '1.6.1';
+var VERSION = '1.6.2';
 
 var PROP_API = 'PAID_API_BASE';
 var PROP_API_KEY = 'PAID_API_KEY';
@@ -401,64 +401,102 @@ function formatShortDate_(iso) {
  * We do the templating client-side (no server round-trip) so the button
  * always fires fast and works even if the backend is mid-deploy.
  */
-function buildReplyDraftUrl_(classificationRow, clientEmail) {
-  var kind = (classificationRow && classificationRow.classification) || 'other';
-  var promisedDate = (classificationRow && classificationRow.promisedPayDate) || '';
-  var ownName = getUserDisplayName_() || 'Paid';
-  var body;
+/**
+ * Build a tone-tailored reply body keyed on classification. Returns plain
+ * text. The body is also reused by the buildReplyDraftUrl_ legacy URL path
+ * (kept for any caller that still wants a compose URL) and by the new
+ * onDraftResponse compose-action handler, which is what the "Draft
+ * response" button now uses — that opens an in-page draft sub-window
+ * instead of jumping to a new browser tab.
+ */
+function buildReplyBody_(kind, promisedDate, ownName) {
+  ownName = ownName || 'Paid';
   switch (kind) {
     case 'will_pay_later':
-      body =
-        'Hi,\n\n' +
+      return 'Hi,\n\n' +
         'Thanks for the update — really appreciate you keeping me posted. ' +
         (promisedDate
           ? "I'll plan to check in shortly after " + promisedDate + '. '
           : "I'll plan to follow up around your expected date. ") +
         "Let me know if anything changes before then.\n\n" +
         'Thanks,\n' + ownName;
-      break;
     case 'cannot_pay':
-      body =
-        'Hi,\n\n' +
+      return 'Hi,\n\n' +
         "Thanks for being upfront — appreciate it. Let's find something that works on both ends. " +
         "Happy to set up a payment plan, accept a partial payment, or extend the due date. " +
         "What feels reasonable for you this month?\n\n" +
         'Thanks,\n' + ownName;
-      break;
     case 'payment_plan_request':
-      body =
-        'Hi,\n\n' +
+      return 'Hi,\n\n' +
         "Happy to work with you on this. Two options that work on our end:\n" +
         "  - 3 monthly installments (equal thirds)\n" +
         "  - 50% now, 50% in 30 days\n\n" +
         "Either works, or if a different schedule fits your cash flow, just let me know.\n\n" +
         'Thanks,\n' + ownName;
-      break;
     case 'invoice_issue':
-      body =
-        'Hi,\n\n' +
+      return 'Hi,\n\n' +
         "Thanks for flagging this. Could you tell me which line item is the concern? " +
         "I'll pull our records and get back to you today.\n\n" +
         'Thanks,\n' + ownName;
-      break;
     case 'paid_already':
-      body =
-        'Hi,\n\n' +
+      return 'Hi,\n\n' +
         "Thanks for letting me know — I'll double-check our records. " +
         "If you have a check number, transfer date, or screenshot, that would help me reconcile faster. " +
         "I'll confirm receipt as soon as it shows up on our side.\n\n" +
         'Thanks,\n' + ownName;
-      break;
     default:
-      body =
-        'Hi,\n\n' +
+      return 'Hi,\n\n' +
         "Thanks for the note. Let me know if there's anything else I can help with from my side.\n\n" +
         'Thanks,\n' + ownName;
   }
+}
+
+function buildReplyDraftUrl_(classificationRow, clientEmail) {
+  var kind = (classificationRow && classificationRow.classification) || 'other';
+  var promisedDate = (classificationRow && classificationRow.promisedPayDate) || '';
+  var ownName = getUserDisplayName_() || 'Paid';
+  var body = buildReplyBody_(kind, promisedDate, ownName);
   return 'https://mail.google.com/mail/?view=cm&fs=1' +
     '&to=' + encodeURIComponent(clientEmail || '') +
     '&su=' + encodeURIComponent('Re: Your invoice') +
     '&body=' + encodeURIComponent(body);
+}
+
+/**
+ * Action handler for the "Draft response" button. Returns a compose action
+ * response that opens a Gmail draft in an in-page sub-window (same UX as
+ * "Edit in Gmail"). When the message is known (action fired from a card
+ * inside an open thread), the draft is threaded as a REPLY so the
+ * conversation stays in one thread on the client's side.
+ */
+function onDraftResponse(e) {
+  var p = (e && e.parameters) || {};
+  var kind = String(p.classification || 'other');
+  var promisedDate = String(p.promisedPayDate || '');
+  var clientEmail = String(p.clientEmail || '');
+  var messageId = (e && e.gmail && e.gmail.messageId) || String(p.messageId || '');
+  var ownName = getUserDisplayName_() || 'Paid';
+  var body = buildReplyBody_(kind, promisedDate, ownName);
+
+  var draft = null;
+  if (messageId) {
+    // Prefer createDraftReply — keeps the response threaded under the
+    // client's reply, which is what every Gmail user expects when they
+    // hit Reply in the message view.
+    try {
+      var msg = GmailApp.getMessageById(messageId);
+      if (msg) {
+        draft = msg.createDraftReply(body);
+      }
+    } catch (replyErr) { /* fall through to standalone draft */ }
+  }
+  if (!draft) {
+    // Fallback for the (rare) case where messageId isn't usable —
+    // e.g., action invoked from the home card with no open thread.
+    var subject = 'Re: Your invoice';
+    draft = GmailApp.createDraft(clientEmail, subject, body);
+  }
+  return CardService.newComposeActionResponseBuilder().setGmailDraft(draft).build();
 }
 
 /**
@@ -2344,33 +2382,52 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
 
     if (prior && prior.length > 0) {
       var last = prior[0];
-      var bottomBits = [];
-      if (last.promisedPayDate) bottomBits.push('Promised by ' + last.promisedPayDate);
-      if (last.autoScheduledFor) bottomBits.push('Auto follow-up ' + last.autoScheduledFor);
-      if (last.suggestedAction) bottomBits.push(last.suggestedAction);
+      // Bottom line is the contextual fact, not a list of metadata. If a
+      // promised date exists, that's THE thing the merchant needs to see;
+      // otherwise show the suggested next action. The old version
+      // concatenated all three with " · " which read as engineering log
+      // output, not a designed status line.
+      var bottomLine = '';
+      if (last.promisedPayDate) {
+        bottomLine = 'Promised ' + formatShortDate_(last.promisedPayDate) +
+          (last.autoScheduledFor ? ' · follow up ' + formatShortDate_(last.autoScheduledFor) : '');
+      } else if (last.suggestedAction) {
+        bottomLine = last.suggestedAction;
+      } else if (last.autoScheduledFor) {
+        bottomLine = 'Follow up ' + formatShortDate_(last.autoScheduledFor);
+      }
       classifySec.addWidget(
         CardService.newDecoratedText()
-          .setTopLabel('Reply read ' + (last.createdAt || '').slice(0, 10))
           .setText(classificationHeadline_(last.classification))
-          .setBottomLabel(bottomBits.join(' · '))
+          .setBottomLabel(bottomLine)
           .setWrapText(true)
       );
-      // Primary CTA: draft a reply tailored to the classification. Opens
-      // Gmail compose with subject + body prefilled; user edits and clicks
-      // Send themselves. This is the "suggested reply" Tommy was missing.
-      var draftReplyUrl = buildReplyDraftUrl_(last, clientEmailForClassify);
-      classifySec.addWidget(
-        CardService.newButtonSet().addButton(
-          CardService.newTextButton()
-            .setText('Draft response')
-            .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
-            .setOpenLink(
-              CardService.newOpenLink()
-                .setUrl(draftReplyUrl)
-                .setOpenAs(CardService.OpenAs.FULL_SIZE)
-            )
-        )
-      );
+      // Primary CTA — "Draft response". Uses a compose action (in-page sub-
+      // window, same UX as "Edit in Gmail") rather than the old OpenLink path
+      // which spawned a new browser tab. Threaded as a reply when the open
+      // message is known, so it lands inside the client's existing thread on
+      // their side instead of starting a new conversation.
+      var replyAction = CardService.newAction()
+        .setFunctionName('onDraftResponse')
+        .setParameters({
+          classification: String(last.classification || ''),
+          promisedPayDate: String(last.promisedPayDate || ''),
+          clientEmail: String(clientEmailForClassify || ''),
+          messageId: String(replyContext.messageId || ''),
+        });
+      var draftBtn = CardService.newTextButton()
+        .setText('Draft response')
+        .setTextButtonStyle(CardService.TextButtonStyle.FILLED);
+      try {
+        draftBtn.setComposeAction(replyAction, CardService.ComposedEmailType.REPLY_AS_DRAFT);
+      } catch (composeErr) {
+        // Older Apps Script runtimes — fall back to the legacy URL path.
+        var draftReplyUrl = buildReplyDraftUrl_(last, clientEmailForClassify);
+        draftBtn.setOpenLink(
+          CardService.newOpenLink().setUrl(draftReplyUrl)
+        );
+      }
+      classifySec.addWidget(CardService.newButtonSet().addButton(draftBtn));
 
       if (
         last.invoiceId &&
@@ -2379,8 +2436,8 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
         classifySec.addWidget(
           CardService.newButtonSet().addButton(
             CardService.newTextButton()
-              .setText('Payment plan offer')
-              .setTextButtonStyle(CardService.TextButtonStyle.OUTLINED)
+              .setText('Suggest payment plan')
+              .setTextButtonStyle(CardService.TextButtonStyle.TEXT)
               .setOnClickAction(
                 CardService.newAction()
                   .setFunctionName('onSuggestPaymentPlan')
@@ -2389,21 +2446,11 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
           )
         );
       }
-      classifySec.addWidget(
-        CardService.newButtonSet().addButton(
-          CardService.newTextButton()
-            .setText('Re-classify')
-            .setTextButtonStyle(CardService.TextButtonStyle.TEXT)
-            .setOnClickAction(
-              CardService.newAction()
-                .setFunctionName('onClassifyReply')
-                .setParameters({
-                  messageId: replyContext.messageId,
-                  fromEmail: clientEmailForClassify,
-                })
-            )
-        )
-      );
+      // Re-classify removed — re-running the same LLM call on the same body
+      // produces the same answer 95% of the time. If a merchant disagrees,
+      // the right move is to ignore the classification and write their own
+      // reply, which "Draft response" already supports. Hiding the
+      // mechanism, not the action.
     } else if (isOutbound) {
       // True outbound view (sent, not in INBOX). Show a clean confirmation
       // strip — the merchant just sent a reminder, they want a "✓ done"
@@ -2419,16 +2466,15 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
           .setWrapText(true)
       );
     } else {
-      classifySec.addWidget(
-        CardService.newDecoratedText()
-          .setTopLabel('This looks like a reply')
-          .setText('Classify with Paid')
-          .setBottomLabel('We will read it and suggest the next step.')
-      );
+      // Pre-classify fallback — only shown when the auto-classify call
+      // didn't return (transient server error, body fetch empty). Single
+      // FILLED button, no intro paragraph; the button label says what it
+      // does and the empty card is a stronger nudge than instructional
+      // copy is.
       classifySec.addWidget(
         CardService.newButtonSet().addButton(
           CardService.newTextButton()
-            .setText('Classify reply')
+            .setText('Classify this reply')
             .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
             .setOnClickAction(
               CardService.newAction()
@@ -2484,39 +2530,22 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
         continue;
       }
 
-      // Summary row: outstanding, overdue count, recovered, reminders sent
+      // Summary \u2014 one widget. Was four rows of stat labels (Outstanding /
+      // Recovered / Reminders sent / replies classified) stacked like a
+      // report header. Now: client identity is the hero, the financial
+      // headline ($X outstanding \u00b7 N overdue) is the bottom label, and the
+      // counters live further down the card where they're already shown
+      // by the per-invoice and recent-reminders sections. No duplication.
       var summarySec = CardService.newCardSection();
+      var headlineBits = [];
+      if (totals.outstanding) headlineBits.push(fmtMoneyCompact_(totals.outstanding) + ' outstanding');
+      if (totals.overdueCount) headlineBits.push(totals.overdueCount + ' overdue');
       summarySec.addWidget(
         CardService.newDecoratedText()
           .setTopLabel(email)
           .setText(clientName)
-          .setBottomLabel(
-            (totals.overdueCount || 0) + ' overdue \u00b7 ' +
-            (totals.invoiceCount || 0) + ' total invoices'
-          )
+          .setBottomLabel(headlineBits.length ? headlineBits.join(' \u00b7 ') : 'No outstanding invoices')
           .setWrapText(true)
-      );
-      summarySec.addWidget(
-        CardService.newDecoratedText()
-          .setTopLabel('Outstanding')
-          .setText(fmtMoney_(totals.outstanding || 0))
-      );
-      if ((totals.recovered || 0) > 0) {
-        summarySec.addWidget(
-          CardService.newDecoratedText()
-            .setTopLabel('Recovered (since first reminder)')
-            .setText(fmtMoney_(totals.recovered))
-        );
-      }
-      summarySec.addWidget(
-        CardService.newDecoratedText()
-          .setTopLabel('Reminders sent')
-          .setText(String(totals.remindersSent || 0))
-          .setBottomLabel(
-            (totals.replyCount || 0) > 0
-              ? (totals.replyCount + ' reply' + (totals.replyCount === 1 ? '' : 'ies') + ' classified')
-              : 'No replies classified'
-          )
       );
       builder.addSection(summarySec);
       sectionsAdded++;
@@ -2541,43 +2570,50 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
         sectionsAdded++;
       }
 
-      // Recent reminders (last 5)
+      // Recent reminders \u2014 last 3 (was 5), and stripped to just the
+      // signal: time and tone. The reminder subject was a one-row title
+      // long enough to wrap; in 90% of cases it's identical across sends.
+      // The channel suffix ("via gmail-compose-addon") was an internal
+      // string leaking into the user-facing card. Both dropped.
       if (reminders.length) {
-        var remSec = CardService.newCardSection().setHeader('Recent reminders');
-        reminders.slice(0, 5).forEach(function (r, idx) {
+        var remSec = CardService.newCardSection().setHeader(
+          reminders.length === 1 ? '1 reminder sent' : reminders.length + ' reminders sent'
+        );
+        reminders.slice(0, 3).forEach(function (r, idx) {
           if (idx > 0) remSec.addWidget(CardService.newDivider());
-          var dateLabel = (r.created_at || '').slice(0, 10);
-          var bottomBits = [];
-          if (r.tone) bottomBits.push(capitalize_(r.tone) + ' tone');
-          if (r.pay_link_included) bottomBits.push('Pay Now included');
-          if (r.channel) bottomBits.push('via ' + r.channel);
+          var label = r.tone ? capitalize_(r.tone) : 'Sent';
+          if (r.pay_link_included) label += ' \u00b7 Pay Now';
           remSec.addWidget(
             CardService.newDecoratedText()
-              .setTopLabel(dateLabel)
-              .setText(r.subject || '(no subject)')
-              .setBottomLabel(bottomBits.join(' \u00b7 '))
-              .setWrapText(true)
+              .setStartIcon(CardService.newIconImage().setIcon(CardService.Icon.EMAIL))
+              .setText(label)
+              .setBottomLabel(formatTimestamp_(r.created_at))
           );
         });
         builder.addSection(remSec);
         sectionsAdded++;
       }
 
-      // Recent replies (last 3)
+      // Recent replies — last 3. Tighter copy on the bottom line: a
+      // promised date is the signal, otherwise the model's suggested
+      // action. The ISO date moves from the body to the top label and
+      // renders in the same relative-time format as the reminder rows
+      // so the two logs read in the same scan.
       if (replies.length) {
-        var repSec = CardService.newCardSection().setHeader('Recent replies');
+        var repSec = CardService.newCardSection().setHeader(
+          replies.length === 1 ? '1 reply' : replies.length + ' replies'
+        );
         replies.slice(0, 3).forEach(function (rep, idx) {
           if (idx > 0) repSec.addWidget(CardService.newDivider());
-          var dateLabel = (rep.created_at || '').slice(0, 10);
           var bottom = '';
           if (rep.classification === 'will_pay_later' && rep.promised_pay_date) {
-            bottom = 'Promised by ' + rep.promised_pay_date;
+            bottom = 'Promised ' + formatShortDate_(rep.promised_pay_date);
           } else if (rep.suggested_action) {
             bottom = rep.suggested_action;
           }
           repSec.addWidget(
             CardService.newDecoratedText()
-              .setTopLabel(dateLabel)
+              .setTopLabel(formatTimestamp_(rep.created_at))
               .setText(classificationHeadline_(rep.classification))
               .setBottomLabel(bottom)
               .setWrapText(true)
