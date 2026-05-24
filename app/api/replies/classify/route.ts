@@ -63,12 +63,19 @@ export async function POST(request: NextRequest) {
   }
 
   // Or look up by client email if no invoice id supplied (best-match: most overdue open invoice).
-  if (!invoiceId && parsed.data.clientEmail) {
+  // Normalize aggressively — trim + lowercase. QB stores client_email lowercased
+  // post-sync, but inbound From: headers can carry oddball whitespace or
+  // mixed case. Use ilike against the normalized form so case differences
+  // never cause a miss.
+  const normalizedEmail = parsed.data.clientEmail
+    ? parsed.data.clientEmail.trim().toLowerCase()
+    : null;
+  if (!invoiceId && normalizedEmail) {
     const { data: inv } = await supabase
       .from("invoices")
       .select("id, amount, days_overdue, quickbooks_invoice_id")
       .eq("user_id", ctx.user.id)
-      .ilike("client_email", parsed.data.clientEmail.toLowerCase())
+      .ilike("client_email", normalizedEmail)
       .neq("status", "paid")
       .order("days_overdue", { ascending: false })
       .limit(1)
@@ -81,6 +88,20 @@ export async function POST(request: NextRequest) {
         quickbooksInvoiceId: inv.quickbooks_invoice_id,
       };
     }
+  }
+
+  // Backfill orphans for this client whenever we know which invoice they
+  // belong to. If a prior /api/replies/classify call ran before the QB sync
+  // completed (or before BillEmail was populated), those rows are orphan
+  // with invoice_id=null. Now that we have a match, re-link them so the
+  // History card surfaces them. Idempotent after the first run.
+  if (invoiceId && normalizedEmail) {
+    await supabase
+      .from("reply_classifications")
+      .update({ invoice_id: invoiceId })
+      .eq("user_id", ctx.user.id)
+      .is("invoice_id", null)
+      .ilike("client_email", normalizedEmail);
   }
 
   // Auto-dedupe: when the add-on auto-classifies on thread open, return any
@@ -128,13 +149,14 @@ export async function POST(request: NextRequest) {
     return serverError(e instanceof Error ? e.message : "Classification failed");
   }
 
-  // Persist the classification.
+  // Persist the classification. Store the normalized email so future
+  // backfills can find this row via ilike on the same normalized form.
   const insert = {
     user_id: ctx.user.id,
     invoice_id: invoiceId,
     thread_id: parsed.data.threadId ?? "(unknown)",
     message_id: parsed.data.messageId ?? null,
-    client_email: parsed.data.clientEmail ?? null,
+    client_email: normalizedEmail,
     classification: result.classification,
     promised_pay_date: result.promisedPayDate,
     raw_excerpt: result.excerpt,

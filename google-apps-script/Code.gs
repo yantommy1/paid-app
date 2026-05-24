@@ -12,7 +12,7 @@
  */
 
 /** Deployed add-on version (bump when publishing a new deployment). */
-var VERSION = '1.3.9';
+var VERSION = '1.4.0';
 
 var PROP_API = 'PAID_API_BASE';
 var PROP_API_KEY = 'PAID_API_KEY';
@@ -1664,26 +1664,42 @@ function buildHomePage_(e) {
     }
     card.addSection(listSec);
 
-    // Single primary action only when there's something to review. No
-    // floating button when the action queue is empty.
+    // Footer actions. "Sync from QuickBooks" is always present — Tommy's
+    // feedback: forcing him to leave Gmail to trigger a sync is clunky and
+    // breaks the "everything in one place" promise of the add-on. "Review
+    // all reminders" is the primary CTA when there's overdue work.
+    var foot = CardService.newCardSection();
+    var footButtons = CardService.newButtonSet();
     if (overdue.length > 0) {
-      var foot = CardService.newCardSection();
-      foot.addWidget(
-        CardService.newButtonSet()
-          .addButton(
-            CardService.newTextButton()
-              .setText('Review all reminders')
-              .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
-              .setOnClickAction(CardService.newAction().setFunctionName('onQueueAllReminders'))
-          )
+      footButtons.addButton(
+        CardService.newTextButton()
+          .setText('Review all reminders')
+          .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+          .setOnClickAction(CardService.newAction().setFunctionName('onQueueAllReminders'))
       );
-      card.addSection(foot);
     }
+    footButtons.addButton(
+      CardService.newTextButton()
+        .setText(overdue.length > 0 ? 'Sync QuickBooks' : 'Sync from QuickBooks')
+        .setTextButtonStyle(
+          overdue.length > 0
+            ? CardService.TextButtonStyle.TEXT
+            : CardService.TextButtonStyle.OUTLINED
+        )
+        .setOnClickAction(CardService.newAction().setFunctionName('onSyncQuickBooks'))
+    );
+    foot.addWidget(footButtons);
+    card.addSection(foot);
 
     card.addCardAction(
       CardService.newCardAction()
         .setText('Refresh')
         .setOnClickAction(CardService.newAction().setFunctionName('onRefreshHome'))
+    );
+    card.addCardAction(
+      CardService.newCardAction()
+        .setText('Sync from QuickBooks')
+        .setOnClickAction(CardService.newAction().setFunctionName('onSyncQuickBooks'))
     );
 
     return card.build();
@@ -1708,6 +1724,82 @@ function onRefreshHome(e) {
   return CardService.newActionResponseBuilder()
     .setNavigation(CardService.newNavigation().updateCard(buildHomePage_(e)))
     .build();
+}
+
+/**
+ * Trigger a QuickBooks invoice sync from inside Gmail — same endpoint the
+ * web dashboard hits. Pulls overdue invoices into Paid so the user doesn't
+ * have to leave Gmail to refresh their A/R. We bust the home-pack cache
+ * after a successful sync and re-render so the new invoices show up
+ * immediately.
+ *
+ * Failure modes that surface as notifications instead of breaking the card:
+ *   - QuickBooks not connected → user-facing message + nudge to Settings.
+ *   - Token expired → user-facing reconnect prompt.
+ *   - Transient API error → "Try again" with the underlying status.
+ */
+function onSyncQuickBooks(e) {
+  try {
+    var res = paidFetch_(
+      '/api/invoices/sync',
+      { method: 'post', payload: '{}', contentType: 'application/json' },
+      'qb-sync'
+    );
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      var data = {};
+      try { data = JSON.parse(res.body); } catch (parseErr) { /* ignore */ }
+      var upserted = Number(data && data.upserted) || 0;
+      var overdueCount = Number(data && data.overdueCount) || 0;
+      var msg;
+      if (upserted === 0) {
+        msg = 'QuickBooks is up to date — no new invoices.';
+      } else {
+        msg = 'Synced ' + upserted + (upserted === 1 ? ' invoice' : ' invoices') +
+              ' from QuickBooks.' + (overdueCount > 0 ? ' ' + overdueCount + ' overdue.' : '');
+      }
+      // Bust the home-pack cache so the next render shows the fresh data.
+      clearHomePackCache_();
+      return CardService.newActionResponseBuilder()
+        .setNavigation(CardService.newNavigation().updateCard(buildHomePage_(e)))
+        .setNotification(CardService.newNotification().setText(msg))
+        .build();
+    }
+    // 400 — QuickBooks not connected. 401 — token invalid. Either way,
+    // route the user to Settings rather than showing a cryptic notification.
+    if (res.statusCode === 400 || res.statusCode === 401) {
+      return CardService.newActionResponseBuilder()
+        .setNotification(
+          CardService.newNotification().setText(
+            res.statusCode === 401
+              ? 'Reconnect QuickBooks at paid-app.com/settings.'
+              : 'Connect QuickBooks at paid-app.com/settings before syncing.'
+          )
+        )
+        .build();
+    }
+    return CardService.newActionResponseBuilder()
+      .setNotification(
+        CardService.newNotification().setText(
+          userFacingApiError_(res.statusCode, res.body)
+        )
+      )
+      .build();
+  } catch (err) {
+    if (err && err.name === 'PaidAuthReconnectError') {
+      return CardService.newActionResponseBuilder()
+        .setNavigation(
+          CardService.newNavigation().updateCard(
+            buildReconnectCard_('Your connection expired. Reconnect to sync.')
+          )
+        )
+        .build();
+    }
+    return CardService.newActionResponseBuilder()
+      .setNotification(
+        CardService.newNotification().setText('Sync failed. Check your internet and try again.')
+      )
+      .build();
+  }
 }
 
 /** Bottom nav: open minimal settings card */
@@ -3120,277 +3212,4 @@ function buildClassificationResultCard_(data, fromEmail) {
 
   var sec = CardService.newCardSection();
   if (fromEmail) {
-    sec.addWidget(CardService.newDecoratedText().setTopLabel('From').setText(fromEmail));
-  }
-  if (data.suggestedAction) {
-    sec.addWidget(CardService.newDecoratedText().setTopLabel('Suggested next step').setText(data.suggestedAction));
-  }
-  if (data.classification === 'will_pay_later' && data.promisedPayDate) {
-    sec.addWidget(CardService.newDecoratedText().setTopLabel('Client promised by').setText(data.promisedPayDate));
-  }
-  if (data.scheduledFor) {
-    sec.addWidget(
-      CardService.newDecoratedText()
-        .setTopLabel('Follow-up scheduled')
-        .setText(data.scheduledFor)
-        .setBottomLabel('We will draft a fresh reminder for that day.')
-    );
-  }
-  if (data.excerpt) {
-    sec.addWidget(CardService.newTextParagraph().setText('"' + data.excerpt + '"'));
-  }
-
-  // Action: suggest a payment plan when the client says they cannot pay or asks for one.
-  if (
-    data.invoiceId &&
-    (data.classification === 'cannot_pay' || data.classification === 'payment_plan_request')
-  ) {
-    sec.addWidget(
-      CardService.newButtonSet().addButton(
-        CardService.newTextButton()
-          .setText('Suggest payment plan')
-          .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
-          .setOnClickAction(
-            CardService.newAction()
-              .setFunctionName('onSuggestPaymentPlan')
-              .setParameters({ invoiceId: String(data.invoiceId) })
-          )
-      )
-    );
-  }
-
-  card.addSection(sec);
-  return card.build();
-}
-
-function classificationHeadline_(c) {
-  switch (c) {
-    case 'will_pay_later': return 'Client says: paying later';
-    case 'cannot_pay': return 'Client says: cannot pay right now';
-    case 'payment_plan_request': return 'Client wants a payment plan';
-    case 'invoice_issue': return 'Client raised an issue with the invoice';
-    case 'paid_already': return 'Client says they already paid';
-    case 'unrelated': return 'Reply is unrelated to the invoice';
-    default: return 'Reply classification';
-  }
-}
-
-function classificationShortLabel_(c) {
-  switch (c) {
-    case 'will_pay_later': return 'Paying later';
-    case 'cannot_pay': return 'Cannot pay';
-    case 'payment_plan_request': return 'Wants plan';
-    case 'invoice_issue': return 'Disputed';
-    case 'paid_already': return 'Already paid?';
-    case 'unrelated': return 'Unrelated';
-    default: return 'Reply';
-  }
-}
-
-/**
- * "Recent reminders" section on the home card — outgoing reminder log so the
- * user sees what they've sent recently across all clients in one glance.
- * Mirrors the per-contact timeline that shows on the contextual / compose
- * card, but global instead of contact-scoped.
- */
-function buildRecentRemindersSectionFromPack_(items) {
-  try {
-    if (!items || !items.length) return null;
-    var sec = CardService.newCardSection().setHeader('Recent reminders');
-    items.slice(0, 5).forEach(function (item, idx) {
-      if (idx > 0) sec.addWidget(CardService.newDivider());
-      var date = (item.createdAt || '').slice(0, 10);
-      var clientName = (item.invoice && item.invoice.client_name) || item.sentTo || 'Client';
-      var bottomBits = [];
-      if (item.tone) bottomBits.push(capitalize_(item.tone) + ' tone');
-      if (item.payLinkIncluded) bottomBits.push('Pay Now');
-      if (item.discountPct) bottomBits.push(item.discountPct + '% discount');
-      var widget = CardService.newDecoratedText()
-        .setTopLabel(date + ' · ' + clientName)
-        .setText(item.subject || '(no subject)')
-        .setBottomLabel(bottomBits.join(' · '))
-        .setWrapText(true);
-      // Tap to view full history for that invoice.
-      if (item.invoiceId) {
-        widget.setOnClickAction(
-          CardService.newAction()
-            .setFunctionName('onShowInvoiceHistory')
-            .setParameters({ invoiceId: String(item.invoiceId) })
-        );
-      }
-      sec.addWidget(widget);
-    });
-    return sec;
-  } catch (err) {
-    return null;
-  }
-}
-
-/**
- * "Activity" section on the home card — recent client replies the system has classified,
- * with quick actions. Receives items already loaded by /api/gmail/home-pack so this is
- * synchronous (no second network call).
- */
-function buildActivitySectionFromPack_(items) {
-  try {
-    if (!items || !items.length) return null;
-
-    var sec = CardService.newCardSection().setHeader('Activity');
-    items.slice(0, 6).forEach(function (item, idx) {
-      if (idx > 0) sec.addWidget(CardService.newDivider());
-      var label = classificationShortLabel_(item.classification);
-      var topLabel = (item.invoice && item.invoice.client_name) || item.clientEmail || 'Client reply';
-      var bottomBits = [];
-      if (item.classification === 'will_pay_later' && item.promisedPayDate) {
-        bottomBits.push('Promised by ' + item.promisedPayDate);
-      }
-      if (item.nextFollowup) {
-        bottomBits.push('Follow-up ' + item.nextFollowup);
-      }
-      if (item.invoice && item.invoice.days_overdue != null) {
-        bottomBits.push(item.invoice.days_overdue + 'd overdue');
-      }
-      sec.addWidget(
-        CardService.newDecoratedText()
-          .setTopLabel(topLabel)
-          .setText(label + (item.invoice && item.invoice.amount ? ' · ' + fmtMoney_(item.invoice.amount) : ''))
-          .setBottomLabel(bottomBits.join(' · ') || (item.suggestedAction || ''))
-          .setWrapText(true)
-      );
-
-      if (
-        item.invoiceId &&
-        (item.classification === 'cannot_pay' || item.classification === 'payment_plan_request')
-      ) {
-        sec.addWidget(
-          CardService.newButtonSet().addButton(
-            CardService.newTextButton()
-              .setText('Suggest payment plan')
-              .setTextButtonStyle(CardService.TextButtonStyle.OUTLINED)
-              .setOnClickAction(
-                CardService.newAction()
-                  .setFunctionName('onSuggestPaymentPlan')
-                  .setParameters({ invoiceId: String(item.invoiceId) })
-              )
-          )
-        );
-      }
-    });
-    return sec;
-  } catch (err) {
-    return null;
-  }
-}
-
-/**
- * Action: build a payment plan template and open it in a Gmail compose window.
- * Used both from the Activity feed and from the classification result card.
- */
-function onSuggestPaymentPlan(e) {
-  var p = (e && e.parameters) || {};
-  var id = p.invoiceId;
-  if (!id) {
-    return CardService.newActionResponseBuilder()
-      .setNotification(CardService.newNotification().setText('Missing invoice id'))
-      .build();
-  }
-
-  try {
-    var res = paidFetch_('/api/invoices/payment-plan-template', {
-      method: 'post',
-      payload: JSON.stringify({ invoiceId: id }),
-    });
-    if (res.statusCode < 200 || res.statusCode >= 300) {
-      return CardService.newActionResponseBuilder()
-        .setNotification(
-          CardService.newNotification().setText(userFacingApiError_(res.statusCode, res.body))
-        )
-        .build();
-    }
-    var data = JSON.parse(res.body);
-    var url =
-      'https://mail.google.com/mail/?view=cm&fs=1' +
-      '&to=' + encodeURIComponent(data.to || '') +
-      '&su=' + encodeURIComponent(data.subject || '') +
-      '&body=' + encodeURIComponent(data.body || '');
-    return CardService.newActionResponseBuilder()
-      .setOpenLink(
-        CardService.newOpenLink()
-          .setUrl(url)
-          .setOpenAs(CardService.OpenAs.OVERLAY)
-      )
-      .setNotification(
-        CardService.newNotification().setText(
-          'Payment plan template opened in Gmail (' + (data.installments || 3) + ' installments).'
-        )
-      )
-      .build();
-  } catch (err) {
-    if (err && err.name === 'PaidAuthReconnectError') {
-      return CardService.newActionResponseBuilder()
-        .setNavigation(
-          CardService.newNavigation().updateCard(
-            buildReconnectCard_('Your connection expired. Enter your API key below to reconnect.')
-          )
-        )
-        .build();
-    }
-    return CardService.newActionResponseBuilder()
-      .setNotification(
-        CardService.newNotification().setText('Could not build payment plan template.')
-      )
-      .build();
-  }
-}
-
-/**
- * Look up prior classifications for an open Gmail thread so the contextual
- * card can surface "we already classified this — here is what they said
- * and what we scheduled." 60-second memcache so repeat thread-opens
- * within a working session render near-instant. Mutations (new
- * classification posted) bust the cache for that thread.
- */
-var PRIOR_CLASSIFY_TTL_S = 60;
-function priorClassifyCacheKey_(threadId) {
-  return 'paid_prior_classify_' + String(threadId || '');
-}
-
-function fetchPriorClassificationsForThread_(threadId) {
-  if (!threadId) return [];
-  var key = priorClassifyCacheKey_(threadId);
-  try {
-    var hit = CacheService.getUserCache().get(key);
-    if (hit) {
-      var parsed = JSON.parse(hit);
-      if (Array.isArray(parsed)) return parsed;
-    }
-  } catch (cacheErr) {
-    // Fall through to network.
-  }
-  try {
-    var res = paidFetch_(
-      '/api/replies/by-thread?threadId=' + encodeURIComponent(threadId),
-      { method: 'get' },
-      'replies-by-thread'
-    );
-    if (res.statusCode !== 200) return [];
-    var data = JSON.parse(res.body);
-    var items = (data && data.items) || [];
-    try {
-      CacheService.getUserCache().put(
-        key,
-        JSON.stringify(items),
-        PRIOR_CLASSIFY_TTL_S
-      );
-    } catch (writeErr) { /* ignore */ }
-    return items;
-  } catch (err) {
-    return [];
-  }
-}
-
-function clearPriorClassifyCache_(threadId) {
-  try {
-    CacheService.getUserCache().remove(priorClassifyCacheKey_(threadId));
-  } catch (err) { /* ignore */ }
-}
+    sec.addWidget(CardService.newDecoratedText()

@@ -30,6 +30,24 @@ export async function GET(
   if (error) return serverError(error.message);
   if (!inv) return notFound("Invoice not found");
 
+  // Backfill orphan classifications: rows that were saved with invoice_id=null
+  // because the prior /api/replies/classify call could not resolve the
+  // client_email to an invoice (timing — reply arrived before sync; case or
+  // whitespace mismatch on the email; QB sandbox edge cases). We re-link
+  // them on every History open so the user never has to know orphans existed.
+  //
+  // Idempotent: after the first repair, no rows match `invoice_id IS NULL`
+  // for this email, so subsequent opens are a no-op.
+  const clientEmailNorm = (inv.client_email || "").trim().toLowerCase();
+  if (clientEmailNorm) {
+    await supabase
+      .from("reply_classifications")
+      .update({ invoice_id: invoiceId })
+      .eq("user_id", ctx.user.id)
+      .is("invoice_id", null)
+      .ilike("client_email", clientEmailNorm);
+  }
+
   const [remindersRes, repliesRes, schedulesRes] = await Promise.all([
     supabase
       .from("reminder_logs")
