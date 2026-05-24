@@ -17,6 +17,11 @@ export type BuildReminderOptions = {
   discountPctOverride?: number | null;
   /** Per-invoice override of payment plan availability. */
   paymentPlanOverride?: boolean | null;
+  /** Plan gate (v1.7.0): when true, force-disable early-pay discount AND
+   *  payment plan offer regardless of per-invoice or per-account settings.
+   *  Callers set this for Starter users — the plain Pay Now button still
+   *  works, but the extras live under Pro. */
+  suppressPlanExtras?: boolean;
 };
 
 export type BuiltReminder = {
@@ -64,8 +69,10 @@ export async function buildReminderForInvoice(
   const paymentLinkPromise = options.disablePayLink
     ? Promise.resolve(null as ResolvedPaymentLink | null)
     : resolvePaymentLink(supabase, userId, invoice.id, {
-        discountPct: options.discountPctOverride,
-        planEnabled: options.paymentPlanOverride,
+        // Starter: explicit nulls override any user-level setting, so the
+        // resolver returns plain Pay Now (no discount, no plan offer).
+        discountPct: options.suppressPlanExtras ? null : options.discountPctOverride,
+        planEnabled: options.suppressPlanExtras ? false : options.paymentPlanOverride,
       });
 
   // We need settings before we can run computeAutoTone (so it knows defaults),

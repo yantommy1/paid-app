@@ -1,5 +1,6 @@
 import { serverError } from "@/lib/api/errors";
 import { requireUserFromRequest } from "@/lib/api/require-user-request";
+import { getUserPlan, upgradeRequiredBody } from "@/lib/billing/plan";
 import { createRouteHandlerClient } from "@/lib/supabase/route-client";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
@@ -47,6 +48,21 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) return serverError("Invalid payload", 400);
 
   const supabase = await createRouteHandlerClient(request);
+
+  // Plan gate (v1.7.0) — Send-to-bookkeeper share link is a Pro feature.
+  // Gate at invite creation so a Starter user can't generate a token even
+  // if their client (the bookkeeper holder) hits the endpoint directly.
+  const plan = await getUserPlan(supabase, ctx.user.id);
+  if (plan === "starter") {
+    return NextResponse.json(
+      upgradeRequiredBody(
+        "bookkeeperShareLink",
+        "Send-to-bookkeeper share links are part of Pro. Upgrade to invite your bookkeeper to review and approve reminders."
+      ),
+      { status: 402 }
+    );
+  }
+
   const insert = {
     owner_user_id: ctx.user.id,
     bookkeeper_email: parsed.data.bookkeeper_email.trim().toLowerCase(),

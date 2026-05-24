@@ -1,6 +1,7 @@
 import { classifyReply } from "@/lib/anthropic/classify-reply";
 import { serverError } from "@/lib/api/errors";
 import { requireUserFromRequest } from "@/lib/api/require-user-request";
+import { getUserPlan, upgradeRequiredBody } from "@/lib/billing/plan";
 import { logError, logInfo } from "@/lib/observability/log";
 import { createRouteHandlerClient } from "@/lib/supabase/route-client";
 import { NextRequest, NextResponse } from "next/server";
@@ -64,6 +65,22 @@ export async function POST(request: NextRequest) {
   });
 
   const supabase = await createRouteHandlerClient(request);
+
+  // Plan gate — reply classification (and the auto-scheduling that
+  // follows from it) is a Pro feature. Server-side enforcement is the
+  // source of truth; the add-on hides the UI separately but a Starter
+  // client hitting this endpoint directly still 402s. This also stops
+  // Anthropic LLM spend on accounts that aren't paying for it.
+  const plan = await getUserPlan(supabase, ctx.user.id);
+  if (plan === "starter") {
+    return NextResponse.json(
+      upgradeRequiredBody(
+        "replyClassification",
+        "Reply classification is part of Pro. Upgrade to auto-categorize client replies and schedule follow-ups."
+      ),
+      { status: 402 }
+    );
+  }
 
   // Look up invoice for context if we have an id.
   let invoiceContext: { amount: number; daysOverdue: number; quickbooksInvoiceId: string } | null = null;

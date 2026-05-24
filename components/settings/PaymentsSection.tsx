@@ -7,6 +7,11 @@ type Status = {
   chargesEnabled: boolean;
   payoutsEnabled: boolean;
   onboardingUrl: string | null;
+  // Surfaced when /api/stripe/connect/status can't generate an onboarding
+  // URL. Lets us render a useful explanation (and a support mailto) rather
+  // than a greyed-out button with no context.
+  code?: string | null;
+  errorMessage?: string | null;
 };
 
 type SettingsState = {
@@ -42,6 +47,8 @@ export function PaymentsSection() {
             chargesEnabled: Boolean(statusJson.chargesEnabled),
             payoutsEnabled: Boolean(statusJson.payoutsEnabled),
             onboardingUrl: statusJson.onboardingUrl ?? null,
+            code: statusJson.code ?? null,
+            errorMessage: statusJson.error ?? null,
           });
         }
         const s = settingsJson?.settings ?? null;
@@ -121,12 +128,39 @@ export function PaymentsSection() {
               <span className="text-sm font-medium text-[#0D0D0D]">Not connected</span>
             </div>
           )}
-          {status && !status.connected && (
+          {status && !status.connected && status.onboardingUrl && (
             <p className="mt-2 text-xs text-[#6B6B6B]">
               {status.chargesEnabled
                 ? "Onboarding partially complete. Finish to start receiving payouts."
                 : "About 5 minutes — Stripe will ask for your bank account and EIN."}
             </p>
+          )}
+          {status && !status.connected && !status.onboardingUrl && (
+            <div className="mt-2 border border-[#E5C870] bg-[#FFF8E1] p-3">
+              <p className="text-xs font-medium text-[#8A6A0A]">
+                Stripe Connect is not available right now
+              </p>
+              <p className="mt-1 text-xs text-[#6B6B6B]">
+                {status.errorMessage ||
+                  (status.code === "STRIPE_NOT_CONFIGURED"
+                    ? "Our Stripe Connect platform isn't activated yet. Once it's live, this page will let you connect in about 5 minutes."
+                    : status.code === "STRIPE_INIT_FAILED"
+                    ? "We couldn't reach Stripe to start onboarding. This is usually transient — try refreshing in a minute."
+                    : status.code === "STRIPE_STATUS_FAILED"
+                    ? "Stripe is responding with an error. Try refreshing; if it persists, our team is already looking."
+                    : "Try refreshing the page. If the issue persists, contact support below.")}
+              </p>
+              <p className="mt-2 text-xs text-[#6B6B6B]">
+                Email{" "}
+                <a
+                  href="mailto:support@paid-app.com"
+                  className="text-[#1B4332] underline"
+                >
+                  support@paid-app.com
+                </a>{" "}
+                and we'll set you up manually.
+              </p>
+            </div>
           )}
           <div className="mt-4">
             {status?.connected ? (

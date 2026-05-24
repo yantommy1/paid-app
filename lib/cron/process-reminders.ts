@@ -1,4 +1,5 @@
 import { buildReminderForInvoice } from "@/lib/invoices/build-reminder";
+import { planFromRow } from "@/lib/billing/plan";
 import { computeAutoTone, type Tone } from "@/lib/tone/compute";
 import { displayNameFromEmail } from "@/lib/auth/display-name";
 import { ensureGmailToken, ensureQuickBooksToken } from "@/lib/oauth/tokens";
@@ -131,6 +132,17 @@ export async function processDailyReminders(
 
   const senderName = displayNameFromEmail(user.email);
 
+  // Plan gate (v1.7.0) — fetch this once per user. Starter pre-warms only
+  // one tone (professional) and never includes early-pay discount / payment
+  // plan extras in the cached draft.
+  const { data: planRow } = await supabase
+    .from("users")
+    .select("stripe_price_id, subscription_status, trial_ends_at, subscription_ends_at")
+    .eq("id", user.id)
+    .maybeSingle();
+  const plan = planFromRow(planRow);
+  const isPro = plan === "pro";
+
   const { data: settingsRow } = await supabase
     .from("settings")
     .select("tone_default, tone_auto_adjust")
@@ -157,24 +169,39 @@ export async function processDailyReminders(
     }
 
     try {
-      const tones: Tone[] = ["friendly", "professional", "firm"];
+      const tones: Tone[] = isPro
+        ? ["friendly", "professional", "firm"]
+        : ["professional"];
       const builds = await Promise.all(
         tones.map((tone) =>
           buildReminderForInvoice(supabase, user.id, inv, senderName, {
             toneOverride: tone,
+            // Starter never gets early-pay or payment plan extras in any
+            // tone variant, even the single one we pre-warm.
+            suppressPlanExtras: !isPro,
           })
         )
       );
-      const [friendly, professional, firm] = builds;
+      // For Starter, all three tone slots are filled with the same
+      // professional draft so the add-on's `tones[autoTone]` lookup
+      // still works regardless of which key is requested.
+      const friendly = isPro ? builds[0] : builds[0];
+      const professional = isPro ? builds[1] : builds[0];
+      const firm = isPro ? builds[2] : builds[0];
 
       // When a scheduled follow-up just came due, force the default tone to
       // 'firm'. The client made a promise and missed (or is about to miss)
       // it — opening with a friendly nudge again would read as a system
-      // that doesn't know what's going on. The other tones stay available
-      // in the all-tones cache so the merchant can still override.
-      const autoTone = isEscalated
+      // that doesn't know what's going on.
+      //
+      // For Starter, the auto-adjust-by-client-history logic doesn't run
+      // (Pro feature); we pin to 'professional' regardless. Escalation
+      // can still flip Starter drafts to 'firm' because that's a hard
+      // schedule trigger, not a personalization signal.
+      const autoTone: Tone = isEscalated
         ? "firm"
-        : await computeAutoTone(
+        : isPro
+        ? await computeAutoTone(
             supabase,
             user.id,
             {
@@ -184,7 +211,8 @@ export async function processDailyReminders(
               client_email: inv.client_email,
             },
             toneSettings
-          );
+          )
+        : "professional";
 
       await supabase
         .from("invoices")

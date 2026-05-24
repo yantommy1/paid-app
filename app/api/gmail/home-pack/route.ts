@@ -1,3 +1,4 @@
+import { featuresFor, planFromRow } from "@/lib/billing/plan";
 import { computeCohorts, computeSidebarHeader } from "@/lib/invoices/sidebar-stats";
 import { serverError } from "@/lib/api/errors";
 import { requireUserFromRequest } from "@/lib/api/require-user-request";
@@ -17,8 +18,12 @@ export async function GET(request: NextRequest) {
 
   const supabase = await createRouteHandlerClient(request);
 
-  // Run all three queries in parallel so we don't serialise DB round-trips.
-  const [invoiceQuery, replyQuery, reminderQuery] = await Promise.all([
+  // Run all four queries in parallel so we don't serialise DB round-trips.
+  // The user-subscription query joins onto the same /api/me/plan logic but
+  // shaves a round-trip off the add-on's cold open. Returned alongside
+  // invoices/cohorts so the add-on knows the plan on every render without
+  // a separate /api/me/plan fetch.
+  const [invoiceQuery, replyQuery, reminderQuery, userSubQuery] = await Promise.all([
     supabase
       .from("invoices")
       .select("*")
@@ -41,6 +46,11 @@ export async function GET(request: NextRequest) {
       .gte("created_at", new Date(Date.now() - 30 * 86400000).toISOString())
       .order("created_at", { ascending: false })
       .limit(8),
+    supabase
+      .from("users")
+      .select("stripe_price_id, subscription_status, trial_ends_at, subscription_ends_at")
+      .eq("id", ctx.user.id)
+      .maybeSingle(),
   ]);
 
   if (invoiceQuery.error) {
@@ -128,6 +138,15 @@ export async function GET(request: NextRequest) {
     invoice: r.invoice_id ? invoicesById[r.invoice_id] ?? null : null,
   }));
 
+  const plan = planFromRow(
+    userSubQuery.data as {
+      stripe_price_id?: string | null;
+      subscription_status?: string | null;
+      trial_ends_at?: string | null;
+      subscription_ends_at?: string | null;
+    } | null
+  );
+
   return NextResponse.json(
     {
       cohorts,
@@ -136,6 +155,10 @@ export async function GET(request: NextRequest) {
       activity,
       recentReminders,
       user_email: ctx.user.email ?? "",
+      // v1.7.0: plan + feature flags on the home-pack so the add-on can
+      // gate UI per render without a separate /api/me/plan round-trip.
+      plan,
+      features: featuresFor(plan),
     },
     {
       headers: {

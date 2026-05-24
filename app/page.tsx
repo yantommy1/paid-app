@@ -19,7 +19,6 @@ export default async function HomePage() {
     <HomeLanding
       starterPriceId={process.env.STRIPE_STARTER_PRICE_ID?.trim() ?? ""}
       proPriceId={process.env.STRIPE_PRO_PRICE_ID?.trim() ?? ""}
-      firmPriceId={process.env.STRIPE_FIRM_PRICE_ID?.trim() ?? ""}
       isLoggedIn={Boolean(user)}
       userEmail={user?.email ?? null}
       userDisplayName={user ? getUserDisplayName(user) : null}

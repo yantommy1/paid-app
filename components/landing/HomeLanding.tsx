@@ -17,21 +17,19 @@ function navAvatarLetter(displayName: string | null): string {
 export function HomeLanding({
   starterPriceId,
   proPriceId,
-  firmPriceId,
   isLoggedIn,
   userEmail,
   userDisplayName,
 }: {
   starterPriceId: string;
   proPriceId: string;
-  firmPriceId: string;
   isLoggedIn: boolean;
   userEmail: string | null;
   userDisplayName: string | null;
 }) {
   const [signInModalOpen, setSignInModalOpen] = useState(false);
   const [navShadow, setNavShadow] = useState(false);
-  const [openPlan, setOpenPlan] = useState<"starter" | "pro" | "firm" | null>(null);
+  const [openPlan, setOpenPlan] = useState<"starter" | "pro" | null>(null);
   const [summary, setSummary] = useState<{
     totalOutstanding: number;
     overdueInvoiceCount: number;
@@ -76,7 +74,7 @@ export function HomeLanding({
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  function onStartFreeTrial(plan: "starter" | "pro" | "firm" = "pro") {
+  function onStartFreeTrial(plan: "starter" | "pro" = "pro") {
     setOpenPlan(plan);
   }
 
@@ -397,11 +395,11 @@ export function HomeLanding({
           <div className="mx-auto w-full max-w-[1200px] px-6">
             <SectionReveal>
               <p className="text-sm uppercase tracking-[0.22em] text-[#1B4332]">Pricing</p>
-              <h2 className="mt-3 font-display text-5xl text-[#0D0D0D]">One firm. One bookkeeper. Or twenty.</h2>
+              <h2 className="mt-3 font-display text-5xl text-[#0D0D0D]">Two plans. 30-day free trial.</h2>
               <p className="mt-4 max-w-2xl text-sm leading-relaxed text-[#6B6B6B]">
-                Every plan includes a 30-day free trial. No card needed for Firm — book a call instead.
+                Card required at checkout. Change or cancel anytime.
               </p>
-              <div className="mt-14 grid gap-6 md:grid-cols-3">
+              <div className="mt-14 grid gap-6 md:grid-cols-2 md:max-w-3xl">
                 <article className="border border-[#E5E5E5] bg-white p-8">
                   <h3 className="font-display text-2xl text-[#0D0D0D]">Starter</h3>
                   <p className="mt-1 text-xs uppercase tracking-[0.18em] text-[#6B6B6B]">Solo principal</p>
@@ -443,28 +441,6 @@ export function HomeLanding({
                     type="button"
                     onClick={() => onStartFreeTrial("pro")}
                     className="mt-10 flex w-full items-center justify-center bg-[#1B4332] py-3 text-sm font-medium text-white"
-                  >
-                    Start free trial
-                  </button>
-                </article>
-
-                <article className="border border-[#E5E5E5] bg-white p-8">
-                  <h3 className="font-display text-2xl text-[#0D0D0D]">Firm</h3>
-                  <p className="mt-1 text-xs uppercase tracking-[0.18em] text-[#6B6B6B]">Bookkeepers &amp; multi-entity</p>
-                  <p className="mt-3 font-display text-5xl text-[#0D0D0D]">
-                    $399<span className="ml-1 text-lg text-[#6B6B6B]">/mo</span>
-                  </p>
-                  <div className="mt-8 space-y-2 text-sm text-[#6B6B6B]">
-                    <p>Everything in Pro</p>
-                    <p>Manage 5+ client books from one view</p>
-                    <p>Cross-client A/R analytics</p>
-                    <p>Priority onboarding &amp; named contact</p>
-                    <p>Revenue share for accounting partners</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => onStartFreeTrial("firm")}
-                    className="mt-10 flex w-full items-center justify-center border border-[#1B4332] py-3 text-sm font-medium text-[#1B4332]"
                   >
                     Start free trial
                   </button>
@@ -535,13 +511,7 @@ export function HomeLanding({
           isOpen={openPlan !== null}
           onClose={() => setOpenPlan(null)}
           plan={openPlan}
-          priceId={
-            openPlan === "starter"
-              ? starterPriceId
-              : openPlan === "firm"
-                ? firmPriceId
-                : proPriceId
-          }
+          priceId={openPlan === "starter" ? starterPriceId : proPriceId}
           initialEmail={userEmail}
           skipCapture={Boolean(isLoggedIn && userEmail)}
         />

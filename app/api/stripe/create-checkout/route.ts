@@ -10,7 +10,9 @@ import { z } from "zod";
 // pricing-page visitor (EmailCaptureModal).
 const BodySchema = z.object({
   priceId: z.string().min(1),
-  plan: z.enum(["starter", "pro", "firm"]).optional(),
+  // Firm tier dropped in v1.7.0 — its features weren't built, so we
+  // collapsed pricing to Starter / Pro until multi-tenant lands.
+  plan: z.enum(["starter", "pro"]).optional(),
   email: z.string().email().optional(),
   fullName: z.string().trim().min(1).max(160).optional(),
   firstName: z.string().trim().min(1).max(80).optional(),
@@ -25,7 +27,6 @@ export async function POST(request: NextRequest) {
   const stripeSecret = process.env.STRIPE_SECRET_KEY;
   const starter = process.env.STRIPE_STARTER_PRICE_ID?.trim();
   const pro = process.env.STRIPE_PRO_PRICE_ID?.trim();
-  const firm = process.env.STRIPE_FIRM_PRICE_ID?.trim();
 
   if (!stripeSecret) {
     console.error("[create-checkout] Missing STRIPE_SECRET_KEY");
@@ -35,7 +36,6 @@ export async function POST(request: NextRequest) {
     console.error("[create-checkout] Missing price IDs", {
       hasStarter: Boolean(starter),
       hasPro: Boolean(pro),
-      hasFirm: Boolean(firm),
     });
     return serverError(
       "Missing environment variables: STRIPE_STARTER_PRICE_ID or STRIPE_PRO_PRICE_ID",
@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
     return serverError("Email required to start checkout.", 400);
   }
   const email = resolvedEmail;
-  const validPriceIds = [starter, pro, firm].filter(Boolean) as string[];
+  const validPriceIds = [starter, pro];
   if (!validPriceIds.includes(priceId)) {
     console.error("[create-checkout] Invalid priceId", { priceId });
     return serverError("Invalid priceId", 400);

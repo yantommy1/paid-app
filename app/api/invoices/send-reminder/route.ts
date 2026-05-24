@@ -2,6 +2,7 @@ import { buildReminderForInvoice } from "@/lib/invoices/build-reminder";
 import { getUserDisplayName } from "@/lib/auth/display-name";
 import { notFound, serverError } from "@/lib/api/errors";
 import { requireUserFromRequest } from "@/lib/api/require-user-request";
+import { featuresFor, getUserPlan, upgradeRequiredBody } from "@/lib/billing/plan";
 import { buildGmailComposeUrl } from "@/lib/gmail/send";
 import { createRouteHandlerClient } from "@/lib/supabase/route-client";
 import { NextRequest, NextResponse } from "next/server";
@@ -44,6 +45,40 @@ export async function POST(request: NextRequest) {
 
   const supabase = await createRouteHandlerClient(request);
 
+  // Plan gate — Starter is limited to N distinct invoices reminded per
+  // calendar month. The "active invoice cap" promise on the pricing page
+  // is enforced at the action (send) level, not at view level: the user
+  // can SEE every overdue invoice in Paid, but can only REMIND on the
+  // first N distinct invoices each month. Hitting the cap prompts an
+  // upgrade rather than silently failing.
+  const plan = await getUserPlan(supabase, ctx.user.id);
+  const cap = featuresFor(plan).activeReminderInvoiceCap;
+  if (cap !== null) {
+    const monthStart = new Date();
+    monthStart.setUTCDate(1);
+    monthStart.setUTCHours(0, 0, 0, 0);
+    const { data: monthLogs } = await supabase
+      .from("reminder_logs")
+      .select("invoice_id")
+      .eq("user_id", ctx.user.id)
+      .gte("created_at", monthStart.toISOString());
+    const distinctThisMonth = new Set(
+      (monthLogs ?? [])
+        .map((r) => (r as { invoice_id: string | null }).invoice_id)
+        .filter((id): id is string => Boolean(id))
+    );
+    const currentInvoiceAlreadyReminded = distinctThisMonth.has(parsed.data.invoiceId);
+    if (!currentInvoiceAlreadyReminded && distinctThisMonth.size >= cap) {
+      return NextResponse.json(
+        upgradeRequiredBody(
+          "activeReminderInvoiceCap",
+          `You've reminded ${cap} different invoices this month — that's the Starter limit. Upgrade to Pro for unlimited reminders.`
+        ),
+        { status: 402 }
+      );
+    }
+  }
+
   // Fast path: the add-on always sends subject+body+tone from its local cache.
   // We only need the client_email to build a compose URL — slim the read.
   // The legacy "build the draft on demand" branch still works for callers that
@@ -82,6 +117,9 @@ export async function POST(request: NextRequest) {
     const senderName = getUserDisplayName(ctx.user);
     const built = await buildReminderForInvoice(supabase, ctx.user.id, inv, senderName, {
       toneOverride: parsed.data.tone,
+      // Plan gate (v1.7.0) — Starter doesn't get early-pay discount or
+      // payment plan offer extras even on the heavy rebuild path.
+      suppressPlanExtras: plan === "starter",
     });
     subject = subject ?? built.subject;
     body = body ?? built.body;

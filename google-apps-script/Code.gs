@@ -12,7 +12,7 @@
  */
 
 /** Deployed add-on version (bump when publishing a new deployment). */
-var VERSION = '1.6.7';
+var VERSION = '1.7.0';
 
 var PROP_API = 'PAID_API_BASE';
 var PROP_API_KEY = 'PAID_API_KEY';
@@ -948,17 +948,12 @@ function buildFullReminderLogCard_(data) {
 function onStartStripeConnect(e) {
   try {
     var res = paidFetch_('/api/stripe/connect/status', { method: 'get' });
-    if (res.statusCode < 200 || res.statusCode >= 300) {
-      return CardService.newActionResponseBuilder()
-        .setNotification(
-          CardService.newNotification().setText(userFacingApiError_(res.statusCode, res.body))
-        )
-        .build();
-    }
-    var data = JSON.parse(res.body);
-    if (data.connected) {
-      // Already done — pop the user back to home; the Pay Now badge will now
-      // render in subsequent draft previews.
+    var data = null;
+    try { data = JSON.parse(res.body); } catch (parseErr) { /* ignore */ }
+
+    // Success path — already connected. Pop home so the Pay Now badge
+    // shows on the next draft.
+    if (res.statusCode >= 200 && res.statusCode < 300 && data && data.connected) {
       clearHomePackCache_();
       return CardService.newActionResponseBuilder()
         .setNotification(
@@ -967,18 +962,28 @@ function onStartStripeConnect(e) {
         .setNavigation(CardService.newNavigation().updateCard(buildHomePage_({})))
         .build();
     }
-    if (data.onboardingUrl) {
+
+    // Happy path — server gave us a fresh onboardingUrl. Push the
+    // in-add-on Connect card with the link wired into the button.
+    if (res.statusCode >= 200 && res.statusCode < 300 && data && data.onboardingUrl) {
       return CardService.newActionResponseBuilder()
         .setNavigation(
-          CardService.newNavigation().pushCard(
-            buildStripeConnectCard_(data.onboardingUrl)
-          )
+          CardService.newNavigation().pushCard(buildStripeConnectCard_(data.onboardingUrl))
         )
         .build();
     }
+
+    // Fallback — the server can't generate an in-add-on onboarding URL
+    // right now. Reasons we've actually hit during dev: STRIPE_SECRET_KEY
+    // missing in Vercel env, platform Connect not yet activated on the
+    // Stripe dashboard, Stripe API outage. Whatever the cause, the user
+    // shouldn't dead-end on a notification — push them to the web
+    // Settings page where they can complete setup OR see a clearer status
+    // (paid-app.com/settings has the same status check rendered as HTML
+    // with full error context and a support link).
     return CardService.newActionResponseBuilder()
-      .setNotification(
-        CardService.newNotification().setText('Stripe Connect is not configured on the server.')
+      .setNavigation(
+        CardService.newNavigation().pushCard(buildStripeConnectFallbackCard_())
       )
       .build();
   } catch (err) {
@@ -991,10 +996,59 @@ function onStartStripeConnect(e) {
         )
         .build();
     }
+    // Network/timeout — same fallback. The web Settings page is the
+    // always-on escape hatch when anything in the in-add-on path breaks.
     return CardService.newActionResponseBuilder()
-      .setNotification(CardService.newNotification().setText('Could not start Stripe setup. Try again.'))
+      .setNavigation(
+        CardService.newNavigation().pushCard(buildStripeConnectFallbackCard_())
+      )
       .build();
   }
+}
+
+/**
+ * Fallback card shown when the server can't generate an in-add-on Stripe
+ * Connect onboarding URL. The "Open in Paid" button uses a direct
+ * setOpenLink so it works on both desktop and Gmail mobile.
+ */
+function buildStripeConnectFallbackCard_() {
+  var base = getApiBase_() || 'https://paid-app.com';
+  var settingsUrl = base.replace(/\/$/, '') + '/settings#stripe';
+
+  var card = CardService.newCardBuilder()
+    .setDisplayStyle(CardService.DisplayStyle.REPLACE)
+    .setHeader(
+      CardService.newCardHeader()
+        .setTitle('Connect Stripe')
+        .setSubtitle('Continue in your browser')
+    );
+  var sec = CardService.newCardSection();
+  sec.addWidget(
+    CardService.newTextParagraph().setText(
+      "We couldn't open Stripe setup directly from Gmail. " +
+      "Open Paid in your browser to finish connecting — it takes about 3 minutes. " +
+      "Once connected, every reminder you send from here will include a one-click Pay Now button."
+    )
+  );
+  sec.addWidget(
+    CardService.newButtonSet().addButton(
+      CardService.newTextButton()
+        .setText('Open Paid')
+        .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+        .setOpenLink(
+          CardService.newOpenLink()
+            .setUrl(settingsUrl)
+            .setOnClose(CardService.OnClose.RELOAD_ADD_ON)
+        )
+    )
+  );
+  sec.addWidget(
+    CardService.newTextParagraph().setText(
+      '<font color="#666">Still stuck? Email <a href="mailto:support@paid-app.com">support@paid-app.com</a>.</font>'
+    )
+  );
+  card.addSection(sec);
+  return card.build();
 }
 
 /**
@@ -1481,27 +1535,40 @@ function buildDraftPreviewCard_(invoiceId) {
   primarySec.addWidget(btnRow);
   card.addSection(primarySec);
 
-  // Tone selector. Header only, no marketing copy. Three buttons in a row,
-  // active one FILLED. That's it.
-  var toneSec = CardService.newCardSection().setHeader('Tone');
-  var toneRow = CardService.newButtonSet();
-  ['friendly', 'professional', 'firm'].forEach(function (t) {
-    var btn = CardService.newTextButton()
-      .setText(capitalize_(t))
-      .setTextButtonStyle(
-        t === tone
-          ? CardService.TextButtonStyle.FILLED
-          : CardService.TextButtonStyle.OUTLINED
+  // Tone selector — Pro only (v1.7.0). Starter renders a quiet inline
+  // chip noting the upgrade path rather than three live tone buttons.
+  // Server already returns a single tone (professional) for Starter, so
+  // hiding the selector keeps the UI honest with what the API delivers.
+  if (isPro_()) {
+    var toneSec = CardService.newCardSection().setHeader('Tone');
+    var toneRow = CardService.newButtonSet();
+    ['friendly', 'professional', 'firm'].forEach(function (t) {
+      var btn = CardService.newTextButton()
+        .setText(capitalize_(t))
+        .setTextButtonStyle(
+          t === tone
+            ? CardService.TextButtonStyle.FILLED
+            : CardService.TextButtonStyle.OUTLINED
+        )
+        .setOnClickAction(
+          CardService.newAction()
+            .setFunctionName('onChangeTone')
+            .setParameters({ invoiceId: String(invoiceId), tone: t })
+        );
+      toneRow.addButton(btn);
+    });
+    toneSec.addWidget(toneRow);
+    card.addSection(toneSec);
+  } else {
+    var lockedToneSec = CardService.newCardSection().setHeader('Tone');
+    lockedToneSec.addWidget(
+      buildUpgradeChipWidget_(
+        'Professional tone',
+        'Pro unlocks the friendly / professional / firm tone selector and auto-adjust by client history.'
       )
-      .setOnClickAction(
-        CardService.newAction()
-          .setFunctionName('onChangeTone')
-          .setParameters({ invoiceId: String(invoiceId), tone: t })
-      );
-    toneRow.addButton(btn);
-  });
-  toneSec.addWidget(toneRow);
-  card.addSection(toneSec);
+    );
+    card.addSection(lockedToneSec);
+  }
 
   // Pay Now status — small footnote at the bottom. If enabled, single
   // line confirmation. If disabled, single line + an OUTLINED secondary
@@ -1796,6 +1863,65 @@ function writeHomePackCache_(data) {
   } catch (err) {
     // Properties has size limits; on overflow just skip the cache.
   }
+}
+
+/**
+ * Plan-aware feature gating (v1.7.0).
+ *
+ * Plan info reaches the add-on three ways, in order of preference:
+ *   1) Embedded in the cached home-pack response (`data.plan`)
+ *   2) A dedicated short-TTL plan cache (set after a /api/me/plan fetch)
+ *   3) Synchronous fetch from /api/me/plan
+ *
+ * If all three fail, default to 'pro' — server-side gates are the source
+ * of truth, so the add-on optimistically shows features and the server
+ * 402s if the user shouldn't have them. This avoids locking out trial /
+ * Pro users on transient cache misses.
+ */
+var PLAN_CACHE_KEY = 'paid_plan_cache_v1';
+var PLAN_CACHE_TTL_S = 60;
+
+function getCachedPlan_() {
+  // Strategy 1 — home-pack cache. Already in memcache for the common
+  // path; no extra round-trip.
+  try {
+    var hp = readHomePackCache_();
+    if (hp && typeof hp.plan === 'string') return hp.plan;
+  } catch (homeErr) { /* fall through */ }
+
+  // Strategy 2 — dedicated plan cache key.
+  try {
+    var raw = CacheService.getUserCache().get(PLAN_CACHE_KEY);
+    if (raw === 'starter' || raw === 'pro') return raw;
+  } catch (cacheErr) { /* fall through */ }
+
+  // Strategy 3 — synchronous fetch.
+  try {
+    var res = paidFetch_('/api/me/plan', { method: 'get' }, 'me-plan');
+    if (res.statusCode === 200) {
+      var data = JSON.parse(res.body);
+      if (data && (data.plan === 'starter' || data.plan === 'pro')) {
+        try {
+          CacheService.getUserCache().put(PLAN_CACHE_KEY, data.plan, PLAN_CACHE_TTL_S);
+        } catch (writeErr) { /* ignore */ }
+        return data.plan;
+      }
+    }
+  } catch (fetchErr) { /* fall through */ }
+
+  // Default to pro — the server has the final word.
+  return 'pro';
+}
+
+function isPro_() {
+  return getCachedPlan_() === 'pro';
+}
+
+function buildUpgradeChipWidget_(headline, sub) {
+  return CardService.newDecoratedText()
+    .setText('<font color="#1B4332"><b>' + headline + '</b></font>')
+    .setBottomLabel(sub || 'Upgrade to Pro in Settings on paid-app.com.')
+    .setWrapText(true);
 }
 
 function clearHomePackCache_() {
@@ -2367,13 +2493,29 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
   // are still keyed per-message, which is a correctness regression but
   // doesn't break the UI flow.
   var dedupeKey = (replyContext && replyContext.gmailThreadId) || (replyContext && replyContext.messageId);
+  // Plan gate (v1.7.0) — reply classification is a Pro feature. For
+  // Starter users we render a single upgrade chip in place of the whole
+  // classify section, no auto-classify call (no LLM spend on accounts
+  // that aren't paying for it).
+  var planIsPro = isPro_();
+  if (anyContactHasInvoices && replyContext && replyContext.messageId && !planIsPro) {
+    var lockedClassifySec = CardService.newCardSection();
+    lockedClassifySec.addWidget(
+      buildUpgradeChipWidget_(
+        'Reply classification is part of Pro',
+        'Auto-categorize client replies and schedule follow-ups by upgrading on paid-app.com/settings.'
+      )
+    );
+    builder.addSection(lockedClassifySec);
+    sectionsAdded++;
+  }
   // Gate the WHOLE classify section behind "at least one participant has
   // invoices" so unrelated threads (Wayfair delivery survey, newsletters,
   // anything not tied to a customer with an active invoice) get no card
   // chrome from us at all. The contextual handler still fires — we just
   // skip directly to the per-email contact summary, which renders the
   // "No invoices on record" line cleanly.
-  if (anyContactHasInvoices && replyContext && replyContext.messageId) {
+  if (planIsPro && anyContactHasInvoices && replyContext && replyContext.messageId) {
     var prior = fetchPriorClassificationsForThread_(dedupeKey);
 
     // Cache miss + actually-inbound message: kick off auto-classification once.
