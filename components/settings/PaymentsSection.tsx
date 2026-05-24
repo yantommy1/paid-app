@@ -158,7 +158,7 @@ export function PaymentsSection() {
                 >
                   support@paid-app.com
                 </a>{" "}
-                and we'll set you up manually.
+                and we&apos;ll set you up manually.
               </p>
             </div>
           )}
