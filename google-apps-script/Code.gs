@@ -12,7 +12,7 @@
  */
 
 /** Deployed add-on version (bump when publishing a new deployment). */
-var VERSION = '1.6.4';
+var VERSION = '1.6.5';
 
 var PROP_API = 'PAID_API_BASE';
 var PROP_API_KEY = 'PAID_API_KEY';
@@ -470,6 +470,15 @@ function buildReplyDraftUrl_(classificationRow, clientEmail) {
  * conversation stays in one thread on the client's side.
  */
 function onDraftResponse(e) {
+  // Required for any GmailApp call that touches drafts in a button-action
+  // context. Without this Apps Script's MailboxService rejects createDraft
+  // / createDraftReply with "Missing access token for authorization" —
+  // the per-message accessToken from the action event has to be promoted
+  // into the GmailApp service before it'll authorize draft mutations.
+  if (e && e.gmail && e.gmail.accessToken) {
+    GmailApp.setCurrentMessageAccessToken(e.gmail.accessToken);
+  }
+
   var p = (e && e.parameters) || {};
   var kind = String(p.classification || 'other');
   var promisedDate = String(p.promisedPayDate || '');
@@ -2332,18 +2341,23 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
         last.invoiceId &&
         (last.classification === 'cannot_pay' || last.classification === 'payment_plan_request')
       ) {
-        classifySec.addWidget(
-          CardService.newButtonSet().addButton(
-            CardService.newTextButton()
-              .setText('Suggest payment plan')
-              .setTextButtonStyle(CardService.TextButtonStyle.TEXT)
-              .setOnClickAction(
-                CardService.newAction()
-                  .setFunctionName('onSuggestPaymentPlan')
-                  .setParameters({ invoiceId: String(last.invoiceId) })
-              )
-          )
-        );
+        var planBtn = CardService.newTextButton()
+          .setText('Suggest payment plan')
+          .setTextButtonStyle(CardService.TextButtonStyle.TEXT);
+        var planAction = CardService.newAction()
+          .setFunctionName('onSuggestPaymentPlan')
+          .setParameters({ invoiceId: String(last.invoiceId) });
+        try {
+          // Compose-action → in-page sub-window, same UX as Edit in Gmail
+          // / Draft response. Threaded as a reply when the action fires
+          // inside an open message context.
+          planBtn.setComposeAction(planAction, CardService.ComposedEmailType.REPLY_AS_DRAFT);
+        } catch (composeErr) {
+          // Older runtime fallback — keeps the action wired even if
+          // setComposeAction is unavailable, just without the sub-window.
+          planBtn.setOnClickAction(planAction);
+        }
+        classifySec.addWidget(CardService.newButtonSet().addButton(planBtn));
       }
       // Re-classify removed — re-running the same LLM call on the same body
       // produces the same answer 95% of the time. If a merchant disagrees,
@@ -3422,22 +3436,24 @@ function buildClassificationResultCard_(data, fromEmail) {
   }
 
   // Action: suggest a payment plan when the client says they cannot pay or asks for one.
+  // Compose-action variant — opens an in-page Gmail compose sub-window
+  // threaded as a reply, same UX as Edit in Gmail / Draft response.
   if (
     data.invoiceId &&
     (data.classification === 'cannot_pay' || data.classification === 'payment_plan_request')
   ) {
-    sec.addWidget(
-      CardService.newButtonSet().addButton(
-        CardService.newTextButton()
-          .setText('Suggest payment plan')
-          .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
-          .setOnClickAction(
-            CardService.newAction()
-              .setFunctionName('onSuggestPaymentPlan')
-              .setParameters({ invoiceId: String(data.invoiceId) })
-          )
-      )
-    );
+    var planBtnResult = CardService.newTextButton()
+      .setText('Suggest payment plan')
+      .setTextButtonStyle(CardService.TextButtonStyle.FILLED);
+    var planActionResult = CardService.newAction()
+      .setFunctionName('onSuggestPaymentPlan')
+      .setParameters({ invoiceId: String(data.invoiceId) });
+    try {
+      planBtnResult.setComposeAction(planActionResult, CardService.ComposedEmailType.REPLY_AS_DRAFT);
+    } catch (composeErr) {
+      planBtnResult.setOnClickAction(planActionResult);
+    }
+    sec.addWidget(CardService.newButtonSet().addButton(planBtnResult));
   }
 
   card.addSection(sec);
@@ -3500,6 +3516,12 @@ function buildRecentRemindersSectionFromPack_(items) {
  * Used both from the Activity feed and from the classification result card.
  */
 function onSuggestPaymentPlan(e) {
+  // Same access-token requirement as onDraftResponse — required for
+  // GmailApp draft mutations from action handlers.
+  if (e && e.gmail && e.gmail.accessToken) {
+    GmailApp.setCurrentMessageAccessToken(e.gmail.accessToken);
+  }
+
   var p = (e && e.parameters) || {};
   var id = p.invoiceId;
   if (!id) {
@@ -3521,22 +3543,37 @@ function onSuggestPaymentPlan(e) {
         .build();
     }
     var data = JSON.parse(res.body);
-    var url =
-      'https://mail.google.com/mail/?view=cm&fs=1' +
-      '&to=' + encodeURIComponent(data.to || '') +
-      '&su=' + encodeURIComponent(data.subject || '') +
-      '&body=' + encodeURIComponent(data.body || '');
-    return CardService.newActionResponseBuilder()
-      .setOpenLink(
-        CardService.newOpenLink()
-          .setUrl(url)
-          .setOpenAs(CardService.OpenAs.OVERLAY)
-      )
-      .setNotification(
-        CardService.newNotification().setText(
-          'Payment plan template opened in Gmail (' + (data.installments || 3) + ' installments).'
-        )
-      )
+
+    // Build the draft as a Gmail compose action — same sub-window UX as
+    // "Edit in Gmail" and "Draft response". Was opening a Gmail compose
+    // URL in a new browser tab via setOpenLink+OVERLAY, which produced
+    // exactly the disruptive tab-switch Tommy flagged as bad UX.
+    //
+    // Threads as a reply when the action fires inside an open message
+    // (the client just asked about a payment plan — we want the offer to
+    // land in the same conversation), otherwise standalone.
+    var messageId = e && e.gmail && e.gmail.messageId;
+    var draft = null;
+    if (messageId) {
+      try {
+        var msg = GmailApp.getMessageById(messageId);
+        if (msg) {
+          draft = msg.createDraftReply(data.body || '', {
+            subject: data.subject || undefined,
+          });
+        }
+      } catch (replyErr) { /* fall through to standalone draft */ }
+    }
+    if (!draft) {
+      draft = GmailApp.createDraft(
+        data.to || '',
+        data.subject || 'Payment plan',
+        data.body || ''
+      );
+    }
+
+    return CardService.newComposeActionResponseBuilder()
+      .setGmailDraft(draft)
       .build();
   } catch (err) {
     if (err && err.name === 'PaidAuthReconnectError') {
