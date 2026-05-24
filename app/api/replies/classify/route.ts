@@ -255,6 +255,26 @@ export async function POST(request: NextRequest) {
     }
 
     if (scheduledFor && scheduleReason) {
+      // Supersede any prior un-fulfilled schedules for this invoice. When a
+      // client's plan changes — "cannot pay" then "will pay Jun 24" then
+      // "will pay Aug 23" — only the most recent plan is real. Without
+      // this, the Planned section accretes three stale rows for the same
+      // negotiation. We cancel rather than delete so the audit trail is
+      // preserved (cron and analytics queries can still see what was
+      // planned at any past point in time).
+      await supabase
+        .from("reminder_schedules")
+        .update({
+          cancelled_at: new Date().toISOString(),
+          // Stamp the reason for cancellation so the audit row is self-
+          // explanatory: "this was superseded by a newer classification."
+          reason: "Superseded by newer classification.",
+        })
+        .eq("user_id", ctx.user.id)
+        .eq("invoice_id", invoiceId)
+        .is("cancelled_at", null)
+        .is("fulfilled_at", null);
+
       await supabase.from("reminder_schedules").insert({
         user_id: ctx.user.id,
         invoice_id: invoiceId,

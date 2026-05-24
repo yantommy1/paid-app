@@ -12,7 +12,7 @@
  */
 
 /** Deployed add-on version (bump when publishing a new deployment). */
-var VERSION = '1.6.6';
+var VERSION = '1.6.7';
 
 var PROP_API = 'PAID_API_BASE';
 var PROP_API_KEY = 'PAID_API_KEY';
@@ -713,7 +713,16 @@ function buildInvoiceHistoryCard_(data) {
         .setWrapText(true)
     );
   } else {
-    replies.forEach(function (rep, i) {
+    // Show the most recent 2 inline; collapse the rest under a tappable
+    // "+N earlier" link. Real client negotiations can produce 8+ replies
+    // over a few weeks ("we'll pay Friday" → "pushed to Tuesday" → "need
+    // another week" → ...), and rendering all of them inline turns the
+    // History card into a wall of text. Latest 2 is enough to see the
+    // current state and the trajectory; older history is one tap away on
+    // the dedicated reply-log card.
+    var REPLY_MAX_ROWS = 2;
+    var visibleReplies = replies.slice(0, REPLY_MAX_ROWS);
+    visibleReplies.forEach(function (rep, i) {
       if (i > 0) repSec.addWidget(CardService.newDivider());
       var bottom = '';
       if (rep.classification === 'will_pay_later' && rep.promised_pay_date) {
@@ -729,6 +738,21 @@ function buildInvoiceHistoryCard_(data) {
           .setWrapText(true)
       );
     });
+    if (replies.length > REPLY_MAX_ROWS) {
+      var hiddenReplies = replies.length - REPLY_MAX_ROWS;
+      repSec.addWidget(
+        CardService.newButtonSet().addButton(
+          CardService.newTextButton()
+            .setText('+' + hiddenReplies + ' earlier')
+            .setTextButtonStyle(CardService.TextButtonStyle.TEXT)
+            .setOnClickAction(
+              CardService.newAction()
+                .setFunctionName('onShowFullReplyLog')
+                .setParameters({ invoiceId: String(inv.id) })
+            )
+        )
+      );
+    }
   }
   card.addSection(repSec);
 
@@ -778,6 +802,92 @@ function onShowFullReminderLog(e) {
       .setNotification(CardService.newNotification().setText('Could not load reminders. Try again.'))
       .build();
   }
+}
+
+/**
+ * Action: expanded reply timeline for a single invoice. Mirrors
+ * onShowFullReminderLog for the Client responses section — wired from the
+ * "+N earlier" link on the per-invoice History card when more than two
+ * classified replies exist.
+ */
+function onShowFullReplyLog(e) {
+  var p = (e && e.parameters) || {};
+  var id = p.invoiceId;
+  if (!id) {
+    return CardService.newActionResponseBuilder()
+      .setNotification(CardService.newNotification().setText('Missing invoice id'))
+      .build();
+  }
+  try {
+    var res = paidFetch_('/api/invoices/' + encodeURIComponent(id) + '/history', { method: 'get' });
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      return CardService.newActionResponseBuilder()
+        .setNotification(
+          CardService.newNotification().setText(userFacingApiError_(res.statusCode, res.body))
+        )
+        .build();
+    }
+    var data = JSON.parse(res.body);
+    return CardService.newActionResponseBuilder()
+      .setNavigation(
+        CardService.newNavigation().pushCard(buildFullReplyLogCard_(data))
+      )
+      .build();
+  } catch (err) {
+    if (err && err.name === 'PaidAuthReconnectError') {
+      return CardService.newActionResponseBuilder()
+        .setNavigation(
+          CardService.newNavigation().updateCard(
+            buildReconnectCard_('Your connection expired. Enter your API key below to reconnect.')
+          )
+        )
+        .build();
+    }
+    return CardService.newActionResponseBuilder()
+      .setNotification(CardService.newNotification().setText('Could not load replies. Try again.'))
+      .build();
+  }
+}
+
+function buildFullReplyLogCard_(data) {
+  var inv = data.invoice || {};
+  var replies = data.replies || [];
+  var card = CardService.newCardBuilder()
+    .setDisplayStyle(CardService.DisplayStyle.REPLACE)
+    .setHeader(
+      CardService.newCardHeader()
+        .setTitle(inv.clientName || 'Client')
+        .setSubtitle(
+          replies.length === 1 ? '1 client response' : replies.length + ' client responses'
+        )
+    );
+  if (!replies.length) {
+    card.addSection(
+      CardService.newCardSection().addWidget(
+        CardService.newTextParagraph().setText('No replies classified yet.')
+      )
+    );
+    return card.build();
+  }
+  var sec = CardService.newCardSection();
+  replies.forEach(function (rep, i) {
+    if (i > 0) sec.addWidget(CardService.newDivider());
+    var bottom = '';
+    if (rep.classification === 'will_pay_later' && rep.promised_pay_date) {
+      bottom = 'Promised ' + formatShortDate_(rep.promised_pay_date);
+    } else if (rep.suggested_action) {
+      bottom = rep.suggested_action;
+    }
+    sec.addWidget(
+      CardService.newDecoratedText()
+        .setTopLabel(formatTimestamp_(rep.created_at))
+        .setText(classificationHeadline_(rep.classification))
+        .setBottomLabel(bottom)
+        .setWrapText(true)
+    );
+  });
+  card.addSection(sec);
+  return card.build();
 }
 
 function buildFullReminderLogCard_(data) {

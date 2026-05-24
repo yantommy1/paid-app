@@ -70,7 +70,10 @@ export async function GET(
       .eq("user_id", ctx.user.id)
       .eq("invoice_id", invoiceId)
       .order("created_at", { ascending: false })
-      .limit(10),
+      // 50 covers the longest real negotiation we'd expect for one invoice;
+      // the "+N earlier" full-log card iterates over the array client-side
+      // so this cap is also the hard ceiling on what's visible at all.
+      .limit(50),
     supabase
       .from("reminder_schedules")
       .select("id, scheduled_for, reason, cancelled_at, fulfilled_at, created_at")
