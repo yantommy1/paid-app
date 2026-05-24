@@ -1,6 +1,7 @@
 import { classifyReply } from "@/lib/anthropic/classify-reply";
 import { serverError } from "@/lib/api/errors";
 import { requireUserFromRequest } from "@/lib/api/require-user-request";
+import { logError, logInfo } from "@/lib/observability/log";
 import { createRouteHandlerClient } from "@/lib/supabase/route-client";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
@@ -37,7 +38,30 @@ export async function POST(request: NextRequest) {
     return serverError("Invalid JSON", 400);
   }
   const parsed = BodySchema.safeParse(json);
-  if (!parsed.success) return serverError("Invalid payload", 400);
+  if (!parsed.success) {
+    logError({
+      route: "replies.classify",
+      event: "invalid_payload",
+      userId: ctx.user.id,
+      err: parsed.error.message,
+    });
+    return serverError("Invalid payload", 400);
+  }
+
+  // Log entry so we can confirm whether the contextual auto-classify is
+  // hitting the server at all. Tommy reported zero classification rows
+  // after multiple reply cycles — if these logs never appear, the
+  // Apps Script handler isn't calling us. If they appear but the insert
+  // log below doesn't, the insert is being short-circuited.
+  logInfo({
+    route: "replies.classify",
+    event: "called",
+    userId: ctx.user.id,
+    auto: !!parsed.data.auto,
+    hasInvoiceId: !!parsed.data.invoiceId,
+    hasClientEmail: !!parsed.data.clientEmail,
+    replyTextLength: parsed.data.replyText.length,
+  });
 
   const supabase = await createRouteHandlerClient(request);
 

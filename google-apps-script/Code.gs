@@ -12,7 +12,7 @@
  */
 
 /** Deployed add-on version (bump when publishing a new deployment). */
-var VERSION = '1.4.2';
+var VERSION = '1.4.3';
 
 var PROP_API = 'PAID_API_BASE';
 var PROP_API_KEY = 'PAID_API_KEY';
@@ -550,12 +550,24 @@ function onManualClassifyFromHistory(e) {
 
   try {
     var meta = extractMessageMeta_(messageId, accessToken);
-    var bodyText = fetchMessagePlainText_(messageId, accessToken);
+    var fetchRes = fetchMessageTextWithStatus_(messageId, accessToken);
+    var bodyText = fetchRes.text;
     if (!bodyText) {
+      // Surface the actual Gmail API failure so we know what to fix instead
+      // of showing a generic "could not read" message that's been blocking
+      // the test loop. The most likely causes here are:
+      //   401/403 → the per-message token doesn't have message.readonly
+      //              scope for this action context
+      //   404     → messageId is stale (thread switched but Gmail still
+      //              passed the old id in the event)
+      //   5xx     → Gmail API transient — retry
+      var detail = fetchRes.errorCode
+        ? ' (Gmail HTTP ' + fetchRes.errorCode + ')'
+        : '';
       return CardService.newActionResponseBuilder()
         .setNotification(
           CardService.newNotification().setText(
-            'Could not read the open email. Make sure the reply thread is open in Gmail.'
+            'Could not read the open email' + detail + '. Make sure the reply thread is open in Gmail.'
           )
         )
         .build();
@@ -646,9 +658,9 @@ function buildInvoiceHistoryCard_(data) {
   var diag = data.diagnostics || {};
 
   // Header: client name is the title (their identity matters), money +
-  // invoice number is the subtitle (the data). Was "History" /
-  // "{client} · ${amount}" which made the card title generic and buried
-  // the client identity.
+  // invoice number is the subtitle (the data). Version stamp tucked at the
+  // end of the subtitle so Tommy can verify which add-on build is rendering
+  // the card without having to navigate to home.
   var card = CardService.newCardBuilder()
     .setDisplayStyle(CardService.DisplayStyle.REPLACE)
     .setHeader(
@@ -656,7 +668,8 @@ function buildInvoiceHistoryCard_(data) {
         .setTitle(inv.clientName || 'Client')
         .setSubtitle(
           fmtMoney_(inv.amount || 0) +
-          (inv.quickbooksInvoiceId ? ' · Invoice ' + inv.quickbooksInvoiceId : '')
+          (inv.quickbooksInvoiceId ? ' · Invoice ' + inv.quickbooksInvoiceId : '') +
+          ' · v' + VERSION
         )
     );
 
@@ -3281,20 +3294,88 @@ function extractMessageMeta_(messageId, accessToken) {
   return { from: from, isInbox: isInbox, participants: uniqueLower_(allEmails) };
 }
 
-/** Fetch a Gmail message and return its plain-text body (decoded). */
+/**
+ * Fetch a Gmail message body. Returns the decoded plain-text body, falling
+ * back to the snippet via a lighter-privilege metadata call when format=full
+ * is rejected (Tommy's per-message accessToken was returning empty bodies on
+ * the action-handler path, blocking auto-classify on every reply).
+ *
+ * Returns '' on every failure for backward compatibility. Callers that want
+ * the response code for diagnostics should call fetchMessageTextWithStatus_.
+ */
 function fetchMessagePlainText_(messageId, accessToken) {
-  var url =
-    'https://gmail.googleapis.com/gmail/v1/users/me/messages/' +
-    encodeURIComponent(messageId) +
-    '?format=full';
-  var resp = UrlFetchApp.fetch(url, {
-    headers: { Authorization: 'Bearer ' + accessToken },
-    muteHttpExceptions: true,
-    timeout: 10000,
-  });
-  if (resp.getResponseCode() !== 200) return '';
-  var json = JSON.parse(resp.getContentText());
-  return walkPartsForText_(json.payload) || (json.snippet ? String(json.snippet) : '');
+  var r = fetchMessageTextWithStatus_(messageId, accessToken);
+  return r.text || '';
+}
+
+/**
+ * Same as fetchMessagePlainText_ but returns `{ text, source, errorCode,
+ * errorBody }` so callers can surface a specific reason on failure. The
+ * `source` field is 'full', 'metadata-snippet', or 'none' depending on
+ * which strategy returned text.
+ *
+ * Strategy ladder:
+ *   1) format=full           → returns the full plain/HTML body
+ *   2) format=metadata       → returns the Gmail-provided snippet
+ *   3) ''                    → both failed; errorCode carries the full call's status
+ */
+function fetchMessageTextWithStatus_(messageId, accessToken) {
+  var base = 'https://gmail.googleapis.com/gmail/v1/users/me/messages/' + encodeURIComponent(messageId);
+
+  // Strategy 1 — full body. Most informative for classification.
+  var fullCode = 0;
+  var fullBody = '';
+  try {
+    var fullResp = UrlFetchApp.fetch(base + '?format=full', {
+      headers: { Authorization: 'Bearer ' + accessToken },
+      muteHttpExceptions: true,
+      timeout: 10000,
+    });
+    fullCode = fullResp.getResponseCode();
+    fullBody = fullResp.getContentText();
+    if (fullCode === 200) {
+      try {
+        var fullJson = JSON.parse(fullBody);
+        var text = walkPartsForText_(fullJson.payload) || (fullJson.snippet ? String(fullJson.snippet) : '');
+        if (text) return { text: text, source: 'full', errorCode: 0, errorBody: '' };
+      } catch (parseErr) { /* fall through */ }
+    }
+  } catch (netErr) {
+    fullCode = -1;
+    fullBody = String(netErr);
+  }
+
+  // Strategy 2 — metadata-only call for the snippet. metadata is a stricter
+  // scope and is granted via gmail.addons.current.message.metadata, which we
+  // also have. If the user's token only has metadata-level permission for
+  // this action context, this still works.
+  try {
+    var metaResp = UrlFetchApp.fetch(base + '?format=metadata&metadataHeaders=From&metadataHeaders=Subject', {
+      headers: { Authorization: 'Bearer ' + accessToken },
+      muteHttpExceptions: true,
+      timeout: 10000,
+    });
+    if (metaResp.getResponseCode() === 200) {
+      try {
+        var metaJson = JSON.parse(metaResp.getContentText());
+        if (metaJson && metaJson.snippet) {
+          return {
+            text: String(metaJson.snippet),
+            source: 'metadata-snippet',
+            errorCode: fullCode,
+            errorBody: fullBody.slice(0, 300),
+          };
+        }
+      } catch (mpe) { /* fall through */ }
+    }
+  } catch (mnErr) { /* ignore — surface the original error below */ }
+
+  return {
+    text: '',
+    source: 'none',
+    errorCode: fullCode,
+    errorBody: fullBody.slice(0, 300),
+  };
 }
 
 function walkPartsForText_(payload) {
