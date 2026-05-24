@@ -12,7 +12,7 @@
  */
 
 /** Deployed add-on version (bump when publishing a new deployment). */
-var VERSION = '1.6.2';
+var VERSION = '1.6.3';
 
 var PROP_API = 'PAID_API_BASE';
 var PROP_API_KEY = 'PAID_API_KEY';
@@ -616,8 +616,12 @@ function onManualClassifyFromHistory(e) {
         ? fromEmail
         : invoiceClientEmail || '';
 
+    // Use real Gmail threadId for the dedupe key so manual classify lands
+    // in the same dedupe bucket as the contextual auto-classify path.
+    var manualThreadId = (e && e.gmail && e.gmail.threadId) || messageId;
     var payload = {
-      threadId: messageId,
+      threadId: manualThreadId,
+      messageId: messageId,
       replyText: bodyText,
       invoiceId: invoiceId || undefined,
       auto: false,
@@ -1870,12 +1874,10 @@ function buildHomePage_(e) {
     cohortSec.addWidget(buildCohortRow_(DOT_OK, 'Current', cohorts.current));
     card.addSection(cohortSec);
 
-    // Activity — actionable client replies that need a response. Only
-    // shown if there's something. We dropped the standalone "Recent
-    // reminders" section because the merchant just sent them; rendering
-    // them in the sidebar a second time was noise.
-    var activitySec = buildActivitySectionFromPack_(data.activity);
-    if (activitySec) card.addSection(activitySec);
+    // Activity section removed in v1.6.3 — it duplicated the per-invoice
+    // classification visible on the History card and bloated the home card
+    // when threads got multiple classifications. The signal lives on each
+    // invoice row's History view, where the dedupe is correct.
 
     // Overdue invoices — the action queue. Header is dropped when there's
     // nothing overdue (clean empty state).
@@ -2155,6 +2157,13 @@ function buildContextualForMessage_(e) {
 
   var access = e.gmail && e.gmail.accessToken;
   var messageId = e.gmail && e.gmail.messageId;
+  // Capture the REAL Gmail thread id so the server can dedupe classifications
+  // per thread instead of per message. Before v1.6.3 we were passing the
+  // messageId as threadId, which produced a fresh classification row for
+  // every message in a thread — three messages in one conversation became
+  // three "Client says: paying later" rows + three scheduled follow-ups +
+  // three Activity-feed entries. Real threadId fixes that at the source.
+  var threadId = e.gmail && e.gmail.threadId;
   if (!access || !messageId) {
     // No message in context yet — show the home dashboard instead of a
     // dead-end "open a message" notify card. The dashboard is always
@@ -2186,6 +2195,7 @@ function buildContextualForMessage_(e) {
 
   return buildCardsForEmails_(emails, 'onRefreshContextualMessage', {
     messageId: String(messageId),
+    gmailThreadId: threadId ? String(threadId) : '',
     fromEmail: fromEmail,
     accessToken: access,
     isInbox: isInbox,
@@ -2320,14 +2330,14 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
     replyContext.fromEmail &&
     (replyContext.isInbox === true || replyContext.fromEmail !== ownAddr);
 
-  // Gate: render the classify section whenever there's a message at all,
-  // even when no client email is identifiable (self-reply test where the
-  // merchant emails themselves — emails array is empty after filtering
-  // own — or single-participant edge cases). Without this, the entire
-  // section was being skipped and the "Classify reply" button never
-  // rendered on self-reply test threads.
+  // Use the REAL Gmail thread id for dedupe. Falling back to the message id
+  // is only for clients running pre-v1.6.3 Apps Script bundles where the
+  // contextual handler didn't capture e.gmail.threadId yet — those clients
+  // are still keyed per-message, which is a correctness regression but
+  // doesn't break the UI flow.
+  var dedupeKey = (replyContext && replyContext.gmailThreadId) || (replyContext && replyContext.messageId);
   if (replyContext && replyContext.messageId) {
-    var prior = fetchPriorClassificationsForThread_(replyContext.messageId);
+    var prior = fetchPriorClassificationsForThread_(dedupeKey);
 
     // Cache miss + actually-inbound message: kick off auto-classification once.
     if (
@@ -2338,13 +2348,13 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
       try {
         var bodyText = fetchMessagePlainText_(replyContext.messageId, replyContext.accessToken);
         if (bodyText) {
-          // Build classify payload — omit clientEmail when empty so the
-          // server's Zod schema (which expects email-or-undefined) doesn't
-          // reject the request. Server-side falls back to invoice_id=null
-          // when no email is provided, which is correct behavior for the
-          // self-reply test case.
+          // threadId on the wire is the real Gmail thread id (when
+          // available). Server-side dedupe by thread_id then means: one
+          // classification per conversation, not per message in the
+          // conversation — fixes the "3 rows of 'paying later'" bug.
           var classifyPayload = {
-            threadId: replyContext.messageId,
+            threadId: dedupeKey,
+            messageId: replyContext.messageId,
             replyText: bodyText,
             auto: true,
           };
@@ -2368,7 +2378,7 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
             // Bust the prior-classify cache for this thread + the contact
             // activity cache for the (newly-linked) client so the next
             // render reflects the just-inserted row.
-            clearPriorClassifyCache_(replyContext.messageId);
+            clearPriorClassifyCache_(dedupeKey);
             if (clientEmailForClassify) {
               clearContactActivityCache_(clientEmailForClassify);
             }

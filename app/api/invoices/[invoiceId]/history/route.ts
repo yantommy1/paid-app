@@ -91,6 +91,39 @@ export async function GET(
       : Promise.resolve({ data: [] as Array<Record<string, unknown>> }),
   ]);
 
+  // Dedupe replies. Pre-v1.6.3 add-on bundles were keying the classify
+  // dedupe by Gmail messageId instead of threadId, which meant each message
+  // in the same conversation produced a fresh classification row — same
+  // classification + same promised date, three copies. We dedupe on the
+  // semantic shape of the row (classification + promised_pay_date) instead
+  // of on thread_id alone, so the user's existing data gets cleaned up on
+  // the read path even though all three rows have distinct thread_ids in
+  // the DB. Keep the most recent in each group (results are already
+  // ordered DESC by created_at).
+  const rawReplies = repliesRes.data ?? [];
+  const seenReplyKeys = new Set<string>();
+  const dedupedReplies = rawReplies.filter((r) => {
+    const key = `${r.classification || ""}|${r.promised_pay_date || ""}`;
+    if (seenReplyKeys.has(key)) return false;
+    seenReplyKeys.add(key);
+    return true;
+  });
+
+  // Dedupe schedules on (scheduled_for, reason). Three identical
+  // auto-follow-ups on the same date for the same invoice are wrong by
+  // construction — the merchant only ever needs one row per planned
+  // follow-up date.
+  const rawSchedules = (schedulesRes.data ?? []).filter(
+    (s) => !s.cancelled_at && !s.fulfilled_at
+  );
+  const seenScheduleKeys = new Set<string>();
+  const dedupedSchedules = rawSchedules.filter((s) => {
+    const key = `${s.scheduled_for ?? ""}|${(s.reason ?? "").slice(0, 80)}`;
+    if (seenScheduleKeys.has(key)) return false;
+    seenScheduleKeys.add(key);
+    return true;
+  });
+
   return NextResponse.json({
     invoice: {
       id: inv.id,
@@ -106,16 +139,11 @@ export async function GET(
       draftReadyAt: inv.draft_all_tones_at,
     },
     reminders: remindersRes.data ?? [],
-    replies: repliesRes.data ?? [],
-    schedules: (schedulesRes.data ?? []).filter(
-      (s) => !s.cancelled_at && !s.fulfilled_at
-    ),
+    replies: dedupedReplies,
+    schedules: dedupedSchedules,
     diagnostics: {
       totalReplyClassifications: totalRepliesRes.count ?? 0,
       classificationsForClientEmail: (forEmailRepliesRes.data ?? []).length,
-      // Sample of the actual rows we found for this client_email — surfaces
-      // the linkage problem directly: if these have invoice_id !== this id,
-      // the email matched but routing landed on a different invoice.
       samplesForClientEmail: forEmailRepliesRes.data ?? [],
       clientEmailUsedForLookup: clientEmailNorm,
     },
