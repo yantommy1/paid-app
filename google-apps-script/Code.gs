@@ -12,7 +12,7 @@
  */
 
 /** Deployed add-on version (bump when publishing a new deployment). */
-var VERSION = '1.3.6';
+var VERSION = '1.3.7';
 
 var PROP_API = 'PAID_API_BASE';
 var PROP_API_KEY = 'PAID_API_KEY';
@@ -1893,7 +1893,13 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
     replyContext.fromEmail &&
     (replyContext.isInbox === true || replyContext.fromEmail !== ownAddr);
 
-  if (replyContext && replyContext.messageId && clientEmailForClassify) {
+  // Gate: render the classify section whenever there's a message at all,
+  // even when no client email is identifiable (self-reply test where the
+  // merchant emails themselves — emails array is empty after filtering
+  // own — or single-participant edge cases). Without this, the entire
+  // section was being skipped and the "Classify reply" button never
+  // rendered on self-reply test threads.
+  if (replyContext && replyContext.messageId) {
     var prior = fetchPriorClassificationsForThread_(replyContext.messageId);
 
     // Cache miss + actually-inbound message: kick off auto-classification once.
@@ -1905,14 +1911,22 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
       try {
         var bodyText = fetchMessagePlainText_(replyContext.messageId, replyContext.accessToken);
         if (bodyText) {
+          // Build classify payload — omit clientEmail when empty so the
+          // server's Zod schema (which expects email-or-undefined) doesn't
+          // reject the request. Server-side falls back to invoice_id=null
+          // when no email is provided, which is correct behavior for the
+          // self-reply test case.
+          var classifyPayload = {
+            threadId: replyContext.messageId,
+            replyText: bodyText,
+            auto: true,
+          };
+          if (clientEmailForClassify) {
+            classifyPayload.clientEmail = clientEmailForClassify;
+          }
           var autoRes = paidFetch_('/api/replies/classify', {
             method: 'post',
-            payload: JSON.stringify({
-              threadId: replyContext.messageId,
-              clientEmail: clientEmailForClassify,
-              replyText: bodyText,
-              auto: true,
-            }),
+            payload: JSON.stringify(classifyPayload),
           });
           if (autoRes.statusCode >= 200 && autoRes.statusCode < 300) {
             var autoData = JSON.parse(autoRes.body);
