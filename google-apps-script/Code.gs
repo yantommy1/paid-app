@@ -12,7 +12,7 @@
  */
 
 /** Deployed add-on version (bump when publishing a new deployment). */
-var VERSION = '1.5.0';
+var VERSION = '1.6.0';
 
 var PROP_API = 'PAID_API_BASE';
 var PROP_API_KEY = 'PAID_API_KEY';
@@ -553,17 +553,11 @@ function onManualClassifyFromHistory(e) {
     var fetchRes = fetchMessageTextWithStatus_(messageId, accessToken);
     var bodyText = fetchRes.text;
     if (!bodyText) {
-      // Surface the actual Gmail API failure so we know what to fix instead
-      // of showing a generic "could not read" message that's been blocking
-      // the test loop. The most likely causes here are:
-      //   401/403 → the per-message token doesn't have message.readonly
-      //              scope for this action context
-      //   404     → messageId is stale (thread switched but Gmail still
-      //              passed the old id in the event)
-      //   5xx     → Gmail API transient — retry
-      var detail = fetchRes.errorCode
-        ? ' (Gmail HTTP ' + fetchRes.errorCode + ')'
-        : '';
+      // Surface the specific failure reason from GmailApp so we know what to
+      // fix. After the v1.6.0 switch to GmailApp this should almost never
+      // trigger — most likely cause now is "message_not_found" if Gmail
+      // hasn't fully synced the new message yet (retry helps).
+      var detail = fetchRes.errorBody ? ' (' + fetchRes.errorBody + ')' : '';
       return CardService.newActionResponseBuilder()
         .setNotification(
           CardService.newNotification().setText(
@@ -3250,48 +3244,44 @@ function extractFromEmail_(messageId, accessToken) {
  * Returns { from: string, isInbox: boolean, participants: string[] }.
  */
 function extractMessageMeta_(messageId, accessToken) {
+  // Uses GmailApp instead of the per-message OAuth token because Apps Script's
+  // e.gmail.accessToken returns 401 for users when invoked from non-contextual
+  // code paths (action handlers on pushed cards in particular). GmailApp uses
+  // the script's own user-granted gmail.readonly scope which works everywhere.
+  // The accessToken parameter is kept for signature compatibility but unused.
   var empty = { from: '', isInbox: false, participants: [] };
-  var url =
-    'https://gmail.googleapis.com/gmail/v1/users/me/messages/' +
-    encodeURIComponent(messageId) +
-    '?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc';
-  var resp;
+  if (!messageId) return empty;
   try {
-    resp = UrlFetchApp.fetch(url, {
-      headers: { Authorization: 'Bearer ' + accessToken },
-      muteHttpExceptions: true,
-    });
+    var msg = GmailApp.getMessageById(messageId);
+    if (!msg) return empty;
+    var thread = msg.getThread();
+    var isInbox = false;
+    try {
+      var labels = thread ? thread.getLabels() : [];
+      // GmailApp.getLabels() returns user labels only — INBOX is a system
+      // label. Use thread.isInInbox() instead for the system INBOX check.
+      isInbox = thread ? thread.isInInbox() : false;
+      // labels variable kept for potential future per-label logic
+      void labels;
+    } catch (lblErr) { /* ignore label fetch errors */ }
+    var fromHeader = msg.getFrom() || '';
+    var toHeader = msg.getTo() || '';
+    var ccHeader = msg.getCc() || '';
+    var fromEmails = extractEmailsFromHeader_(fromHeader);
+    var toEmails = extractEmailsFromHeader_(toHeader);
+    var ccEmails = extractEmailsFromHeader_(ccHeader);
+    var all = [];
+    fromEmails.forEach(function (e) { all.push(e); });
+    toEmails.forEach(function (e) { all.push(e); });
+    ccEmails.forEach(function (e) { all.push(e); });
+    return {
+      from: fromEmails.length ? fromEmails[0] : '',
+      isInbox: isInbox,
+      participants: uniqueLower_(all),
+    };
   } catch (err) {
     return empty;
   }
-  if (resp.getResponseCode() !== 200) return empty;
-  var json;
-  try {
-    json = JSON.parse(resp.getContentText());
-  } catch (parseErr) {
-    return empty;
-  }
-  var labels = json.labelIds || [];
-  var isInbox = false;
-  for (var li = 0; li < labels.length; li++) {
-    if (labels[li] === 'INBOX') { isInbox = true; break; }
-  }
-  var from = '';
-  var allEmails = [];
-  var headers = (json.payload && json.payload.headers) || [];
-  for (var i = 0; i < headers.length; i++) {
-    var h = headers[i];
-    if (!h.name || !h.value) continue;
-    var n = h.name.toLowerCase();
-    if (n === 'from' || n === 'to' || n === 'cc') {
-      var emails = extractEmailsFromHeader_(h.value);
-      emails.forEach(function (e) { allEmails.push(e); });
-      if (n === 'from' && !from && emails.length) {
-        from = emails[0];
-      }
-    }
-  }
-  return { from: from, isInbox: isInbox, participants: uniqueLower_(allEmails) };
 }
 
 /**
@@ -3309,73 +3299,57 @@ function fetchMessagePlainText_(messageId, accessToken) {
 }
 
 /**
- * Same as fetchMessagePlainText_ but returns `{ text, source, errorCode,
- * errorBody }` so callers can surface a specific reason on failure. The
- * `source` field is 'full', 'metadata-snippet', or 'none' depending on
- * which strategy returned text.
- *
- * Strategy ladder:
- *   1) format=full           → returns the full plain/HTML body
- *   2) format=metadata       → returns the Gmail-provided snippet
- *   3) ''                    → both failed; errorCode carries the full call's status
+ * Returns `{ text, source, errorCode, errorBody }`. Uses GmailApp instead of
+ * the per-message UrlFetchApp path that hit 401 from action handlers. The
+ * accessToken parameter is kept for signature compatibility but unused —
+ * GmailApp uses the script's user-granted gmail.readonly scope, which works
+ * in both contextual and action contexts.
  */
 function fetchMessageTextWithStatus_(messageId, accessToken) {
-  var base = 'https://gmail.googleapis.com/gmail/v1/users/me/messages/' + encodeURIComponent(messageId);
-
-  // Strategy 1 — full body. Most informative for classification.
-  var fullCode = 0;
-  var fullBody = '';
-  try {
-    var fullResp = UrlFetchApp.fetch(base + '?format=full', {
-      headers: { Authorization: 'Bearer ' + accessToken },
-      muteHttpExceptions: true,
-      timeout: 10000,
-    });
-    fullCode = fullResp.getResponseCode();
-    fullBody = fullResp.getContentText();
-    if (fullCode === 200) {
-      try {
-        var fullJson = JSON.parse(fullBody);
-        var text = walkPartsForText_(fullJson.payload) || (fullJson.snippet ? String(fullJson.snippet) : '');
-        if (text) return { text: text, source: 'full', errorCode: 0, errorBody: '' };
-      } catch (parseErr) { /* fall through */ }
-    }
-  } catch (netErr) {
-    fullCode = -1;
-    fullBody = String(netErr);
+  if (!messageId) {
+    return { text: '', source: 'none', errorCode: 0, errorBody: 'no_message_id' };
   }
-
-  // Strategy 2 — metadata-only call for the snippet. metadata is a stricter
-  // scope and is granted via gmail.addons.current.message.metadata, which we
-  // also have. If the user's token only has metadata-level permission for
-  // this action context, this still works.
   try {
-    var metaResp = UrlFetchApp.fetch(base + '?format=metadata&metadataHeaders=From&metadataHeaders=Subject', {
-      headers: { Authorization: 'Bearer ' + accessToken },
-      muteHttpExceptions: true,
-      timeout: 10000,
-    });
-    if (metaResp.getResponseCode() === 200) {
-      try {
-        var metaJson = JSON.parse(metaResp.getContentText());
-        if (metaJson && metaJson.snippet) {
-          return {
-            text: String(metaJson.snippet),
-            source: 'metadata-snippet',
-            errorCode: fullCode,
-            errorBody: fullBody.slice(0, 300),
-          };
-        }
-      } catch (mpe) { /* fall through */ }
+    var msg = GmailApp.getMessageById(messageId);
+    if (!msg) {
+      return { text: '', source: 'none', errorCode: 0, errorBody: 'message_not_found' };
     }
-  } catch (mnErr) { /* ignore — surface the original error below */ }
-
-  return {
-    text: '',
-    source: 'none',
-    errorCode: fullCode,
-    errorBody: fullBody.slice(0, 300),
-  };
+    // getPlainBody() returns the decoded plain-text body, stripping HTML if
+    // only an HTML part exists. Falls back to getBody() (HTML) if needed.
+    var plain = '';
+    try { plain = msg.getPlainBody() || ''; } catch (e) { /* ignore */ }
+    if (plain && plain.trim()) {
+      return { text: plain, source: 'gmailapp-plain', errorCode: 0, errorBody: '' };
+    }
+    var html = '';
+    try { html = msg.getBody() || ''; } catch (e2) { /* ignore */ }
+    if (html) {
+      var stripped = html
+        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (stripped) {
+        return { text: stripped, source: 'gmailapp-html-stripped', errorCode: 0, errorBody: '' };
+      }
+    }
+    // Last resort: thread/message snippet via the Advanced Gmail Service if
+    // enabled; otherwise return the subject so we at least have something
+    // for the classifier to work with.
+    var subject = '';
+    try { subject = msg.getSubject() || ''; } catch (e3) { /* ignore */ }
+    if (subject) {
+      return { text: subject, source: 'gmailapp-subject', errorCode: 0, errorBody: '' };
+    }
+    return { text: '', source: 'none', errorCode: 0, errorBody: 'empty_message' };
+  } catch (err) {
+    return {
+      text: '',
+      source: 'none',
+      errorCode: 0,
+      errorBody: 'GmailApp error: ' + (err && err.message ? err.message : String(err)),
+    };
+  }
 }
 
 function walkPartsForText_(payload) {
