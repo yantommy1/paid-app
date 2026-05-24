@@ -48,7 +48,13 @@ export async function GET(
       .ilike("client_email", clientEmailNorm);
   }
 
-  const [remindersRes, repliesRes, schedulesRes, totalRepliesRes, forEmailRepliesRes] = await Promise.all([
+  // Diagnostic counts/samples were dropped in v1.6.4 — they were added
+  // while debugging the contextual-classify silent failure (the GmailApp
+  // 401 era), kept verbose copy in the History empty state, and made the
+  // History endpoint do two extra Supabase round-trips per render. Now
+  // that auto-classify is reliable the diagnostics aren't earning their
+  // keep, so the response shape is back to the three primary queries.
+  const [remindersRes, repliesRes, schedulesRes] = await Promise.all([
     supabase
       .from("reminder_logs")
       .select("id, channel, subject, sent_to, tone, pay_link_included, discount_pct, created_at, thread_id")
@@ -71,24 +77,6 @@ export async function GET(
       .eq("user_id", ctx.user.id)
       .eq("invoice_id", invoiceId)
       .order("scheduled_for", { ascending: true }),
-    // Diagnostic: total reply classifications across all this user's invoices.
-    // When repliesForInvoice = 0 but totalReplies > 0, the issue is linkage
-    // (orphan row with mismatched/missing client_email). When totalReplies = 0,
-    // the issue is that auto-classify has never run successfully — the user
-    // needs to open the reply thread itself to trigger the contextual handler.
-    supabase
-      .from("reply_classifications")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", ctx.user.id),
-    clientEmailNorm
-      ? supabase
-          .from("reply_classifications")
-          .select("id, invoice_id, client_email, thread_id, classification, created_at")
-          .eq("user_id", ctx.user.id)
-          .ilike("client_email", clientEmailNorm)
-          .order("created_at", { ascending: false })
-          .limit(5)
-      : Promise.resolve({ data: [] as Array<Record<string, unknown>> }),
   ]);
 
   // Dedupe replies. Pre-v1.6.3 add-on bundles were keying the classify
@@ -124,22 +112,10 @@ export async function GET(
     return true;
   });
 
-  // Dedupe reminders on (sent_to, tone, day). In production a user sends at
-  // most one reminder per cohort threshold per day, so a same-client +
-  // same-tone + same-day duplicate is always a test-click artifact (each
-  // Edit-in-Gmail tap creates a reminder_logs row optimistically because
-  // we can't detect Gmail sends reliably). Collapsing them on read mirrors
-  // production behavior — keep the latest in each group.
-  const rawReminders = remindersRes.data ?? [];
-  const seenReminderKeys = new Set<string>();
-  const dedupedReminders = rawReminders.filter((r) => {
-    const day = (r.created_at || "").slice(0, 10);
-    const key = `${r.sent_to || ""}|${r.tone || ""}|${day}`;
-    if (seenReminderKeys.has(key)) return false;
-    seenReminderKeys.add(key);
-    return true;
-  });
-
+  // No reminder dedupe here — each row in reminder_logs now represents a
+  // *verified* send (Apps Script v1.6.4 confirms each draft made it to the
+  // Sent folder before POSTing the log). Showing multiple rows is correct
+  // when the merchant actually sent multiple reminders.
   return NextResponse.json({
     invoice: {
       id: inv.id,
@@ -154,14 +130,8 @@ export async function GET(
       quickbooksInvoiceId: inv.quickbooks_invoice_id,
       draftReadyAt: inv.draft_all_tones_at,
     },
-    reminders: dedupedReminders,
+    reminders: remindersRes.data ?? [],
     replies: dedupedReplies,
     schedules: dedupedSchedules,
-    diagnostics: {
-      totalReplyClassifications: totalRepliesRes.count ?? 0,
-      classificationsForClientEmail: (forEmailRepliesRes.data ?? []).length,
-      samplesForClientEmail: forEmailRepliesRes.data ?? [],
-      clientEmailUsedForLookup: clientEmailNorm,
-    },
   });
 }

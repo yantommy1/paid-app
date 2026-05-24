@@ -556,142 +556,11 @@ function onShowInvoiceHistory(e) {
   }
 }
 
-/**
- * Manual classify: fetch the currently-open Gmail message, classify it,
- * and reload the History card. Wired to the "Classify the open reply"
- * button that appears in the History card empty-state when reminders have
- * been sent but no classifications exist yet.
- *
- * This is the unblock for cases where the contextual auto-classify path
- * silently failed (no logs surfaced to the user, no row in DB). Because
- * Apps Script populates e.gmail.messageId/accessToken on ALL add-on action
- * handlers — not just contextual triggers — we can run the same classify
- * flow from any button as long as a message is open in Gmail.
- */
-function onManualClassifyFromHistory(e) {
-  var p = (e && e.parameters) || {};
-  var invoiceId = String(p.invoiceId || '');
-  var invoiceClientEmail = String(p.clientEmail || '').toLowerCase();
-
-  var messageId = e && e.gmail && e.gmail.messageId;
-  var accessToken = e && e.gmail && e.gmail.accessToken;
-
-  if (!messageId || !accessToken) {
-    return CardService.newActionResponseBuilder()
-      .setNotification(
-        CardService.newNotification().setText(
-          'Open the client\'s reply email in Gmail first, then tap this button again.'
-        )
-      )
-      .build();
-  }
-
-  try {
-    var meta = extractMessageMeta_(messageId, accessToken);
-    var fetchRes = fetchMessageTextWithStatus_(messageId, accessToken);
-    var bodyText = fetchRes.text;
-    if (!bodyText) {
-      // Surface the specific failure reason from GmailApp so we know what to
-      // fix. After the v1.6.0 switch to GmailApp this should almost never
-      // trigger — most likely cause now is "message_not_found" if Gmail
-      // hasn't fully synced the new message yet (retry helps).
-      var detail = fetchRes.errorBody ? ' (' + fetchRes.errorBody + ')' : '';
-      return CardService.newActionResponseBuilder()
-        .setNotification(
-          CardService.newNotification().setText(
-            'Could not read the open email' + detail + '. Make sure the reply thread is open in Gmail.'
-          )
-        )
-        .build();
-    }
-
-    // Choose the client email: prefer the message's From: header if it's
-    // not the merchant's own address; otherwise fall back to the invoice's
-    // stored client_email so the server can link the row correctly even on
-    // self-reply tests where From: is the merchant.
-    var ownAddr = getOwnEmailLower_();
-    var fromEmail = (meta && meta.from) || '';
-    var clientEmail =
-      fromEmail && fromEmail !== ownAddr
-        ? fromEmail
-        : invoiceClientEmail || '';
-
-    // Use real Gmail threadId for the dedupe key so manual classify lands
-    // in the same dedupe bucket as the contextual auto-classify path.
-    var manualThreadId = (e && e.gmail && e.gmail.threadId) || messageId;
-    var payload = {
-      threadId: manualThreadId,
-      messageId: messageId,
-      replyText: bodyText,
-      invoiceId: invoiceId || undefined,
-      auto: false,
-    };
-    if (clientEmail) payload.clientEmail = clientEmail;
-
-    var res = paidFetch_(
-      '/api/replies/classify',
-      { method: 'post', payload: JSON.stringify(payload) },
-      'manual-classify'
-    );
-
-    if (res.statusCode < 200 || res.statusCode >= 300) {
-      return CardService.newActionResponseBuilder()
-        .setNotification(
-          CardService.newNotification().setText(
-            'Classify failed: ' + userFacingApiError_(res.statusCode, res.body)
-          )
-        )
-        .build();
-    }
-
-    var data;
-    try { data = JSON.parse(res.body); } catch (parseErr) { data = {}; }
-    var headline = classificationHeadline_(data.classification);
-
-    // Re-fetch and re-render the History card so the new row appears.
-    var histRes = paidFetch_(
-      '/api/invoices/' + encodeURIComponent(invoiceId) + '/history',
-      { method: 'get' },
-      'history-refresh'
-    );
-    if (histRes.statusCode >= 200 && histRes.statusCode < 300) {
-      var histData = JSON.parse(histRes.body);
-      return CardService.newActionResponseBuilder()
-        .setNavigation(CardService.newNavigation().updateCard(buildInvoiceHistoryCard_(histData)))
-        .setNotification(
-          CardService.newNotification().setText('Classified: ' + headline)
-        )
-        .build();
-    }
-    return CardService.newActionResponseBuilder()
-      .setNotification(
-        CardService.newNotification().setText('Classified: ' + headline + '. Tap back to refresh.')
-      )
-      .build();
-  } catch (err) {
-    if (err && err.name === 'PaidAuthReconnectError') {
-      return CardService.newActionResponseBuilder()
-        .setNavigation(
-          CardService.newNavigation().updateCard(
-            buildReconnectCard_('Your connection expired. Reconnect to classify.')
-          )
-        )
-        .build();
-    }
-    return CardService.newActionResponseBuilder()
-      .setNotification(
-        CardService.newNotification().setText('Classify failed. Check your internet and try again.')
-      )
-      .build();
-  }
-}
-
 function buildInvoiceHistoryCard_(data) {
   var inv = data.invoice || {};
   var reminders = data.reminders || [];
   var replies = data.replies || [];
   var schedules = data.schedules || [];
-  var diag = data.diagnostics || {};
 
   // Header: client name is the title (their identity matters), money +
   // invoice number is the subtitle (the data). Version stamp tucked at the
@@ -819,84 +688,21 @@ function buildInvoiceHistoryCard_(data) {
       : (replies.length === 1 ? '1 client response' : replies.length + ' client responses')
   );
   if (replies.length === 0) {
-    // Diagnostic-aware empty state. The naive "we haven't seen a reply"
-    // copy was masking a real bug for Tommy: replies were coming in but
-    // never getting classified, and there was no signal in the UI to
-    // distinguish "no reply received" from "reply received but classify
-    // never fired". Now we tell the user exactly which is true.
-    var total = Number(diag.totalReplyClassifications) || 0;
-    var forEmail = Number(diag.classificationsForClientEmail) || 0;
-    var emailUsed = String(diag.clientEmailUsedForLookup || '');
-    var samples = (diag.samplesForClientEmail || []);
-
-    var primaryText;
-    var helpText;
-    if (reminders.length === 0) {
-      // Pre-reminder state — no nudge yet.
-      primaryText = 'No responses yet';
-      helpText = 'Send a reminder first; Paid classifies the reply when it arrives.';
-    } else if (total === 0) {
-      // Zero classifications ANYWHERE for this user → auto-classify never
-      // fired, full stop. The user has to open the actual reply thread in
-      // Gmail (not just this History card) so the contextual handler runs.
-      primaryText = 'No replies classified yet';
-      helpText =
-        'Open the client\'s reply email in Gmail. The Paid sidebar auto-processes it on open. Then come back here.';
-    } else if (forEmail === 0) {
-      // Classifications exist for other clients but none for this one.
-      // Almost always an email-mismatch problem — the From: address on the
-      // reply doesn't match client_email on the invoice.
-      primaryText = 'No replies match this client';
-      helpText =
-        total + ' replies classified for other clients. None match ' +
-        (emailUsed || 'this invoice') +
-        '. Check the reply\'s From: address matches the invoice\'s client email.';
-    } else {
-      // Found classifications by email but they didn't link to this invoice
-      // — usually they got routed to a different invoice for the same client.
-      // Show where they landed so the user can see what happened.
-      var otherInvoiceIds = [];
-      for (var si = 0; si < samples.length; si++) {
-        var sid = samples[si] && samples[si].invoice_id;
-        if (sid && sid !== inv.id) otherInvoiceIds.push(sid);
-      }
-      primaryText = forEmail + ' replies for this client, none on this invoice';
-      helpText =
-        otherInvoiceIds.length
-          ? 'Routed to other invoice(s) for the same client. Open the other invoice\'s History to see them.'
-          : 'Replies exist for this client but didn\'t link here. Re-classify from the reply thread to repair.';
-    }
-
+    // Empty state. v1.6.3+ auto-classifies reliably from the contextual
+    // handler when the user opens the reply thread; the verbose diagnostic
+    // copy and manual-classify button (added earlier as troubleshooting
+    // aids during the GmailApp 401 / Anthropic-model debug saga) are gone
+    // now that the path actually works. One quiet line, no machinery.
     repSec.addWidget(
       CardService.newDecoratedText()
-        .setText(primaryText)
-        .setBottomLabel(helpText)
+        .setText('No responses yet')
+        .setBottomLabel(
+          reminders.length === 0
+            ? 'Send a reminder first; Paid classifies the reply when it arrives.'
+            : 'Paid classifies the reply automatically when it lands.'
+        )
         .setWrapText(true)
     );
-    // Manual escape hatch: the contextual auto-classify path has proven
-    // unreliable (Tommy hit zero rows in DB despite multiple replies). This
-    // button reads e.gmail.messageId from the action event (Gmail injects it
-    // into ALL add-on handlers when a message is open in the reading pane,
-    // not just contextual triggers), fetches the message text, and pushes
-    // it through /api/replies/classify directly. Bypasses every silent-fail
-    // path in the contextual handler.
-    if (reminders.length > 0) {
-      repSec.addWidget(
-        CardService.newButtonSet().addButton(
-          CardService.newTextButton()
-            .setText('Classify the open reply')
-            .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
-            .setOnClickAction(
-              CardService.newAction()
-                .setFunctionName('onManualClassifyFromHistory')
-                .setParameters({
-                  invoiceId: String(inv.id || ''),
-                  clientEmail: String(inv.clientEmail || ''),
-                })
-            )
-        )
-      );
-    }
   } else {
     replies.forEach(function (rep, i) {
       if (i > 0) repSec.addWidget(CardService.newDivider());
@@ -1309,14 +1115,17 @@ function onOpenPaidCompose(e) {
     }
     var gmailDraft = GmailApp.createDraft(to, subj, body);
 
-    // Queue the "log this send" call to PropertiesService so the next
-    // contextual/home render flushes it server-side. Doing the POST
-    // SYNCHRONOUSLY here was blocking Gmail compose from opening by
-    // ~500ms-2s — perceptible latency on every Edit-in-Gmail click. The
-    // tracking accuracy trade-off is negligible: the queued send is
-    // flushed within seconds when the user navigates back to the add-on.
+    // Queue the send for later verification + logging. Critical change in
+    // v1.6.4: the queue entry now carries the draft's Gmail message id so
+    // flushPendingSends_ can check whether the user actually hit Send in
+    // Gmail (message gains the SENT label) vs. just closing the compose
+    // window (message stays in DRAFT). Optimistic logging on every
+    // Edit-in-Gmail tap produced phantom rows like Tommy's "4 reminders
+    // sent" screenshot — now we only log verified sends.
     if (id && cached) {
       try {
+        var draftMessageId = '';
+        try { draftMessageId = gmailDraft.getMessageId() || ''; } catch (idErr) { /* older API */ }
         queuePendingSend_({
           invoiceId: id,
           subject: subj,
@@ -1324,6 +1133,8 @@ function onOpenPaidCompose(e) {
           channel: 'addon',
           tone: cached.tone || null,
           payNowIncluded: !!cached.payNowIncluded,
+          draftMessageId: draftMessageId,
+          queuedAt: Date.now(),
         });
         clearReminderDraft_(id);
       } catch (queueErr) {
@@ -1340,6 +1151,45 @@ function onOpenPaidCompose(e) {
         )
       )
       .build();
+  }
+}
+
+/**
+ * Check whether a Gmail message has been sent (lives in the Sent folder
+ * with the SENT label and no longer carries the DRAFT label).
+ *
+ * Returns:
+ *   true  — confirmed sent
+ *   false — still a draft (user opened compose but didn't hit Send yet)
+ *   null  — unable to determine (network error, message deleted, no id)
+ *
+ * Used by flushPendingSends_ to make reminder_logs reflect only verified
+ * sends rather than optimistic Edit-in-Gmail clicks.
+ */
+function isMessageSent_(messageId) {
+  if (!messageId) return null;
+  try {
+    var resp = UrlFetchApp.fetch(
+      'https://gmail.googleapis.com/gmail/v1/users/me/messages/' +
+        encodeURIComponent(messageId) + '?format=minimal',
+      {
+        headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
+        muteHttpExceptions: true,
+        timeout: 5000,
+      }
+    );
+    if (resp.getResponseCode() !== 200) return null;
+    var json = JSON.parse(resp.getContentText());
+    var labels = json.labelIds || [];
+    var isSent = false;
+    var isDraft = false;
+    for (var i = 0; i < labels.length; i++) {
+      if (labels[i] === 'SENT') isSent = true;
+      else if (labels[i] === 'DRAFT') isDraft = true;
+    }
+    return isSent && !isDraft;
+  } catch (err) {
+    return null;
   }
 }
 
@@ -1368,6 +1218,13 @@ function queuePendingSend_(payload) {
   props.setProperty(PROP_PENDING_SENDS, JSON.stringify(queue));
 }
 
+// Pending sends older than this are dropped from the queue. Long enough
+// that the merchant can leave the compose window open through a phone
+// call or coffee break and come back to send; short enough that abandoned
+// drafts don't accumulate forever and create phantom reminder_logs rows
+// the next time the user happens to open Paid.
+var PENDING_SEND_TTL_MS = 24 * 60 * 60 * 1000;
+
 function flushPendingSends_() {
   var props = PropertiesService.getUserProperties();
   var raw = props.getProperty(PROP_PENDING_SENDS) || '';
@@ -1378,19 +1235,51 @@ function flushPendingSends_() {
     props.deleteProperty(PROP_PENDING_SENDS);
     return;
   }
-  // Clear the queue BEFORE firing — if any send fails, we don't want to
-  // retry forever and double-log on success. The merchant can re-send if
-  // needed; the worst-case loss is one tracking entry.
-  props.deleteProperty(PROP_PENDING_SENDS);
+
+  // Three-state resolution per queued send:
+  //   sent       → confirm to /api/invoices/send-reminder, drop from queue
+  //   still draft → keep in queue; check again on next flush
+  //   error/expired → drop silently
+  var now = Date.now();
+  var remaining = [];
   for (var i = 0; i < queue.length; i++) {
-    try {
-      paidFetch_('/api/invoices/send-reminder', {
-        method: 'post',
-        payload: JSON.stringify(queue[i]),
-      });
-    } catch (postErr) {
-      // Skip — non-fatal.
+    var item = queue[i];
+    var age = item.queuedAt ? now - Number(item.queuedAt) : 0;
+    if (item.queuedAt && age > PENDING_SEND_TTL_MS) {
+      continue; // expired — user abandoned the draft
     }
+    // Pre-v1.6.4 entries (no draftMessageId) get the old optimistic
+    // behavior — log immediately. Backward-compatible flush.
+    if (!item.draftMessageId) {
+      try {
+        paidFetch_('/api/invoices/send-reminder', {
+          method: 'post',
+          payload: JSON.stringify(item),
+        });
+      } catch (postErr) { /* skip */ }
+      continue;
+    }
+    var sentState = isMessageSent_(item.draftMessageId);
+    if (sentState === true) {
+      try {
+        paidFetch_('/api/invoices/send-reminder', {
+          method: 'post',
+          payload: JSON.stringify(item),
+        });
+      } catch (postErr) { /* skip */ }
+    } else if (sentState === false) {
+      // Still drafted — keep in queue for the next render to check.
+      remaining.push(item);
+    }
+    // sentState === null → unknown (network, deleted message) — drop to
+    // avoid retrying forever. Worst case is a missed log, which is the
+    // direction we want to err in (under-count, not over-count).
+  }
+
+  if (remaining.length) {
+    props.setProperty(PROP_PENDING_SENDS, JSON.stringify(remaining));
+  } else {
+    props.deleteProperty(PROP_PENDING_SENDS);
   }
 }
 
@@ -3567,18 +3456,6 @@ function classificationHeadline_(c) {
   }
 }
 
-function classificationShortLabel_(c) {
-  switch (c) {
-    case 'will_pay_later': return 'Paying later';
-    case 'cannot_pay': return 'Cannot pay';
-    case 'payment_plan_request': return 'Wants plan';
-    case 'invoice_issue': return 'Disputed';
-    case 'paid_already': return 'Already paid?';
-    case 'unrelated': return 'Unrelated';
-    default: return 'Reply';
-  }
-}
-
 /**
  * "Recent reminders" section on the home card — outgoing reminder log so the
  * user sees what they've sent recently across all clients in one glance.
@@ -3611,62 +3488,6 @@ function buildRecentRemindersSectionFromPack_(items) {
         );
       }
       sec.addWidget(widget);
-    });
-    return sec;
-  } catch (err) {
-    return null;
-  }
-}
-
-/**
- * "Activity" section on the home card — recent client replies the system has classified,
- * with quick actions. Receives items already loaded by /api/gmail/home-pack so this is
- * synchronous (no second network call).
- */
-function buildActivitySectionFromPack_(items) {
-  try {
-    if (!items || !items.length) return null;
-
-    var sec = CardService.newCardSection().setHeader('Activity');
-    items.slice(0, 6).forEach(function (item, idx) {
-      if (idx > 0) sec.addWidget(CardService.newDivider());
-      var label = classificationShortLabel_(item.classification);
-      var topLabel = (item.invoice && item.invoice.client_name) || item.clientEmail || 'Client reply';
-      var bottomBits = [];
-      if (item.classification === 'will_pay_later' && item.promisedPayDate) {
-        bottomBits.push('Promised by ' + item.promisedPayDate);
-      }
-      if (item.nextFollowup) {
-        bottomBits.push('Follow-up ' + item.nextFollowup);
-      }
-      if (item.invoice && item.invoice.days_overdue != null) {
-        bottomBits.push(item.invoice.days_overdue + 'd overdue');
-      }
-      sec.addWidget(
-        CardService.newDecoratedText()
-          .setTopLabel(topLabel)
-          .setText(label + (item.invoice && item.invoice.amount ? ' · ' + fmtMoney_(item.invoice.amount) : ''))
-          .setBottomLabel(bottomBits.join(' · ') || (item.suggestedAction || ''))
-          .setWrapText(true)
-      );
-
-      if (
-        item.invoiceId &&
-        (item.classification === 'cannot_pay' || item.classification === 'payment_plan_request')
-      ) {
-        sec.addWidget(
-          CardService.newButtonSet().addButton(
-            CardService.newTextButton()
-              .setText('Suggest payment plan')
-              .setTextButtonStyle(CardService.TextButtonStyle.OUTLINED)
-              .setOnClickAction(
-                CardService.newAction()
-                  .setFunctionName('onSuggestPaymentPlan')
-                  .setParameters({ invoiceId: String(item.invoiceId) })
-              )
-          )
-        );
-      }
     });
     return sec;
   } catch (err) {
