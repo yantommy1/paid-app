@@ -1,6 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 
-const DEFAULT_MODEL = "claude-3-5-haiku-20241022";
+// claude-3-5-haiku-20241022 was retired by Anthropic — calls now return
+// 404 not_found_error. claude-haiku-4-5-20251001 is the current Haiku.
+const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
 
 function getAnthropicClient(): Anthropic {
   const key = process.env.ANTHROPIC_API_KEY?.trim();

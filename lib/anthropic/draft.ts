@@ -5,9 +5,12 @@ import { type Tone, toneGuidanceCopy } from "@/lib/tone/compute";
 /**
  * Reminder drafts default to Haiku — ~5x faster than Sonnet and the quality
  * gap on a 3-paragraph email is negligible. Set ANTHROPIC_MODEL in .env to
- * pin a specific model (e.g. claude-3-5-sonnet-20241022) per environment.
+ * pin a specific model per environment.
+ *
+ * Note: claude-3-5-haiku-20241022 was retired by Anthropic. The current
+ * Haiku is claude-haiku-4-5-20251001.
  */
-const DEFAULT_MODEL = "claude-3-5-haiku-20241022";
+const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
 
 function getAnthropicClient(): Anthropic {
   const key = process.env.ANTHROPIC_API_KEY?.trim();
