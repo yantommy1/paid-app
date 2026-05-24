@@ -12,7 +12,7 @@
  */
 
 /** Deployed add-on version (bump when publishing a new deployment). */
-var VERSION = '1.4.1';
+var VERSION = '1.4.2';
 
 var PROP_API = 'PAID_API_BASE';
 var PROP_API_KEY = 'PAID_API_KEY';
@@ -518,6 +518,126 @@ function onShowInvoiceHistory(e) {
   }
 }
 
+/**
+ * Manual classify: fetch the currently-open Gmail message, classify it,
+ * and reload the History card. Wired to the "Classify the open reply"
+ * button that appears in the History card empty-state when reminders have
+ * been sent but no classifications exist yet.
+ *
+ * This is the unblock for cases where the contextual auto-classify path
+ * silently failed (no logs surfaced to the user, no row in DB). Because
+ * Apps Script populates e.gmail.messageId/accessToken on ALL add-on action
+ * handlers — not just contextual triggers — we can run the same classify
+ * flow from any button as long as a message is open in Gmail.
+ */
+function onManualClassifyFromHistory(e) {
+  var p = (e && e.parameters) || {};
+  var invoiceId = String(p.invoiceId || '');
+  var invoiceClientEmail = String(p.clientEmail || '').toLowerCase();
+
+  var messageId = e && e.gmail && e.gmail.messageId;
+  var accessToken = e && e.gmail && e.gmail.accessToken;
+
+  if (!messageId || !accessToken) {
+    return CardService.newActionResponseBuilder()
+      .setNotification(
+        CardService.newNotification().setText(
+          'Open the client\'s reply email in Gmail first, then tap this button again.'
+        )
+      )
+      .build();
+  }
+
+  try {
+    var meta = extractMessageMeta_(messageId, accessToken);
+    var bodyText = fetchMessagePlainText_(messageId, accessToken);
+    if (!bodyText) {
+      return CardService.newActionResponseBuilder()
+        .setNotification(
+          CardService.newNotification().setText(
+            'Could not read the open email. Make sure the reply thread is open in Gmail.'
+          )
+        )
+        .build();
+    }
+
+    // Choose the client email: prefer the message's From: header if it's
+    // not the merchant's own address; otherwise fall back to the invoice's
+    // stored client_email so the server can link the row correctly even on
+    // self-reply tests where From: is the merchant.
+    var ownAddr = getOwnEmailLower_();
+    var fromEmail = (meta && meta.from) || '';
+    var clientEmail =
+      fromEmail && fromEmail !== ownAddr
+        ? fromEmail
+        : invoiceClientEmail || '';
+
+    var payload = {
+      threadId: messageId,
+      replyText: bodyText,
+      invoiceId: invoiceId || undefined,
+      auto: false,
+    };
+    if (clientEmail) payload.clientEmail = clientEmail;
+
+    var res = paidFetch_(
+      '/api/replies/classify',
+      { method: 'post', payload: JSON.stringify(payload) },
+      'manual-classify'
+    );
+
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      return CardService.newActionResponseBuilder()
+        .setNotification(
+          CardService.newNotification().setText(
+            'Classify failed: ' + userFacingApiError_(res.statusCode, res.body)
+          )
+        )
+        .build();
+    }
+
+    var data;
+    try { data = JSON.parse(res.body); } catch (parseErr) { data = {}; }
+    var headline = classificationHeadline_(data.classification);
+
+    // Re-fetch and re-render the History card so the new row appears.
+    var histRes = paidFetch_(
+      '/api/invoices/' + encodeURIComponent(invoiceId) + '/history',
+      { method: 'get' },
+      'history-refresh'
+    );
+    if (histRes.statusCode >= 200 && histRes.statusCode < 300) {
+      var histData = JSON.parse(histRes.body);
+      return CardService.newActionResponseBuilder()
+        .setNavigation(CardService.newNavigation().updateCard(buildInvoiceHistoryCard_(histData)))
+        .setNotification(
+          CardService.newNotification().setText('Classified: ' + headline)
+        )
+        .build();
+    }
+    return CardService.newActionResponseBuilder()
+      .setNotification(
+        CardService.newNotification().setText('Classified: ' + headline + '. Tap back to refresh.')
+      )
+      .build();
+  } catch (err) {
+    if (err && err.name === 'PaidAuthReconnectError') {
+      return CardService.newActionResponseBuilder()
+        .setNavigation(
+          CardService.newNavigation().updateCard(
+            buildReconnectCard_('Your connection expired. Reconnect to classify.')
+          )
+        )
+        .build();
+    }
+    return CardService.newActionResponseBuilder()
+      .setNotification(
+        CardService.newNotification().setText('Classify failed. Check your internet and try again.')
+      )
+      .build();
+  }
+}
+
 function buildInvoiceHistoryCard_(data) {
   var inv = data.invoice || {};
   var reminders = data.reminders || [];
@@ -704,6 +824,30 @@ function buildInvoiceHistoryCard_(data) {
         .setBottomLabel(helpText)
         .setWrapText(true)
     );
+    // Manual escape hatch: the contextual auto-classify path has proven
+    // unreliable (Tommy hit zero rows in DB despite multiple replies). This
+    // button reads e.gmail.messageId from the action event (Gmail injects it
+    // into ALL add-on handlers when a message is open in the reading pane,
+    // not just contextual triggers), fetches the message text, and pushes
+    // it through /api/replies/classify directly. Bypasses every silent-fail
+    // path in the contextual handler.
+    if (reminders.length > 0) {
+      repSec.addWidget(
+        CardService.newButtonSet().addButton(
+          CardService.newTextButton()
+            .setText('Classify the open reply')
+            .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+            .setOnClickAction(
+              CardService.newAction()
+                .setFunctionName('onManualClassifyFromHistory')
+                .setParameters({
+                  invoiceId: String(inv.id || ''),
+                  clientEmail: String(inv.clientEmail || ''),
+                })
+            )
+        )
+      );
+    }
   } else {
     replies.forEach(function (rep, i) {
       if (i > 0) repSec.addWidget(CardService.newDivider());
