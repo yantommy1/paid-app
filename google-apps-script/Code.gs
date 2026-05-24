@@ -12,7 +12,7 @@
  */
 
 /** Deployed add-on version (bump when publishing a new deployment). */
-var VERSION = '1.4.0';
+var VERSION = '1.4.1';
 
 var PROP_API = 'PAID_API_BASE';
 var PROP_API_KEY = 'PAID_API_KEY';
@@ -523,6 +523,7 @@ function buildInvoiceHistoryCard_(data) {
   var reminders = data.reminders || [];
   var replies = data.replies || [];
   var schedules = data.schedules || [];
+  var diag = data.diagnostics || {};
 
   // Header: client name is the title (their identity matters), money +
   // invoice number is the subtitle (the data). Was "History" /
@@ -649,10 +650,58 @@ function buildInvoiceHistoryCard_(data) {
       : (replies.length === 1 ? '1 client response' : replies.length + ' client responses')
   );
   if (replies.length === 0) {
+    // Diagnostic-aware empty state. The naive "we haven't seen a reply"
+    // copy was masking a real bug for Tommy: replies were coming in but
+    // never getting classified, and there was no signal in the UI to
+    // distinguish "no reply received" from "reply received but classify
+    // never fired". Now we tell the user exactly which is true.
+    var total = Number(diag.totalReplyClassifications) || 0;
+    var forEmail = Number(diag.classificationsForClientEmail) || 0;
+    var emailUsed = String(diag.clientEmailUsedForLookup || '');
+    var samples = (diag.samplesForClientEmail || []);
+
+    var primaryText;
+    var helpText;
+    if (reminders.length === 0) {
+      // Pre-reminder state — no nudge yet.
+      primaryText = 'No responses yet';
+      helpText = 'Send a reminder first; Paid classifies the reply when it arrives.';
+    } else if (total === 0) {
+      // Zero classifications ANYWHERE for this user → auto-classify never
+      // fired, full stop. The user has to open the actual reply thread in
+      // Gmail (not just this History card) so the contextual handler runs.
+      primaryText = 'No replies classified yet';
+      helpText =
+        'Open the client\'s reply email in Gmail. The Paid sidebar auto-processes it on open. Then come back here.';
+    } else if (forEmail === 0) {
+      // Classifications exist for other clients but none for this one.
+      // Almost always an email-mismatch problem — the From: address on the
+      // reply doesn't match client_email on the invoice.
+      primaryText = 'No replies match this client';
+      helpText =
+        total + ' replies classified for other clients. None match ' +
+        (emailUsed || 'this invoice') +
+        '. Check the reply\'s From: address matches the invoice\'s client email.';
+    } else {
+      // Found classifications by email but they didn't link to this invoice
+      // — usually they got routed to a different invoice for the same client.
+      // Show where they landed so the user can see what happened.
+      var otherInvoiceIds = [];
+      for (var si = 0; si < samples.length; si++) {
+        var sid = samples[si] && samples[si].invoice_id;
+        if (sid && sid !== inv.id) otherInvoiceIds.push(sid);
+      }
+      primaryText = forEmail + ' replies for this client, none on this invoice';
+      helpText =
+        otherInvoiceIds.length
+          ? 'Routed to other invoice(s) for the same client. Open the other invoice\'s History to see them.'
+          : 'Replies exist for this client but didn\'t link here. Re-classify from the reply thread to repair.';
+    }
+
     repSec.addWidget(
       CardService.newDecoratedText()
-        .setText('No responses yet')
-        .setBottomLabel('When the client replies, Paid classifies it here and offers a drafted response.')
+        .setText(primaryText)
+        .setBottomLabel(helpText)
         .setWrapText(true)
     );
   } else {
@@ -1664,31 +1713,19 @@ function buildHomePage_(e) {
     }
     card.addSection(listSec);
 
-    // Footer actions. "Sync from QuickBooks" is always present — Tommy's
-    // feedback: forcing him to leave Gmail to trigger a sync is clunky and
-    // breaks the "everything in one place" promise of the add-on. "Review
-    // all reminders" is the primary CTA when there's overdue work.
+    // Footer: Sync is the only primary action. "Review all reminders" was
+    // dropped — it surfaced a one-by-one approval queue most users never
+    // engaged with (per-invoice "Draft reminder" buttons cover the same job
+    // in context), and it competed visually with the per-row primary CTA.
     var foot = CardService.newCardSection();
-    var footButtons = CardService.newButtonSet();
-    if (overdue.length > 0) {
-      footButtons.addButton(
+    foot.addWidget(
+      CardService.newButtonSet().addButton(
         CardService.newTextButton()
-          .setText('Review all reminders')
-          .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
-          .setOnClickAction(CardService.newAction().setFunctionName('onQueueAllReminders'))
-      );
-    }
-    footButtons.addButton(
-      CardService.newTextButton()
-        .setText(overdue.length > 0 ? 'Sync QuickBooks' : 'Sync from QuickBooks')
-        .setTextButtonStyle(
-          overdue.length > 0
-            ? CardService.TextButtonStyle.TEXT
-            : CardService.TextButtonStyle.OUTLINED
-        )
-        .setOnClickAction(CardService.newAction().setFunctionName('onSyncQuickBooks'))
+          .setText('Sync from QuickBooks')
+          .setTextButtonStyle(CardService.TextButtonStyle.OUTLINED)
+          .setOnClickAction(CardService.newAction().setFunctionName('onSyncQuickBooks'))
+      )
     );
-    foot.addWidget(footButtons);
     card.addSection(foot);
 
     card.addCardAction(

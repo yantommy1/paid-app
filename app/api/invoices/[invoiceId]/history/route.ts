@@ -48,7 +48,7 @@ export async function GET(
       .ilike("client_email", clientEmailNorm);
   }
 
-  const [remindersRes, repliesRes, schedulesRes] = await Promise.all([
+  const [remindersRes, repliesRes, schedulesRes, totalRepliesRes, forEmailRepliesRes] = await Promise.all([
     supabase
       .from("reminder_logs")
       .select("id, channel, subject, sent_to, tone, pay_link_included, discount_pct, created_at, thread_id")
@@ -71,6 +71,24 @@ export async function GET(
       .eq("user_id", ctx.user.id)
       .eq("invoice_id", invoiceId)
       .order("scheduled_for", { ascending: true }),
+    // Diagnostic: total reply classifications across all this user's invoices.
+    // When repliesForInvoice = 0 but totalReplies > 0, the issue is linkage
+    // (orphan row with mismatched/missing client_email). When totalReplies = 0,
+    // the issue is that auto-classify has never run successfully — the user
+    // needs to open the reply thread itself to trigger the contextual handler.
+    supabase
+      .from("reply_classifications")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", ctx.user.id),
+    clientEmailNorm
+      ? supabase
+          .from("reply_classifications")
+          .select("id, invoice_id, client_email, thread_id, classification, created_at")
+          .eq("user_id", ctx.user.id)
+          .ilike("client_email", clientEmailNorm)
+          .order("created_at", { ascending: false })
+          .limit(5)
+      : Promise.resolve({ data: [] as Array<Record<string, unknown>> }),
   ]);
 
   return NextResponse.json({
@@ -92,5 +110,14 @@ export async function GET(
     schedules: (schedulesRes.data ?? []).filter(
       (s) => !s.cancelled_at && !s.fulfilled_at
     ),
+    diagnostics: {
+      totalReplyClassifications: totalRepliesRes.count ?? 0,
+      classificationsForClientEmail: (forEmailRepliesRes.data ?? []).length,
+      // Sample of the actual rows we found for this client_email — surfaces
+      // the linkage problem directly: if these have invoice_id !== this id,
+      // the email matched but routing landed on a different invoice.
+      samplesForClientEmail: forEmailRepliesRes.data ?? [],
+      clientEmailUsedForLookup: clientEmailNorm,
+    },
   });
 }
