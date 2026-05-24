@@ -18,20 +18,27 @@ const CACHE_FRESHNESS_MS = 24 * 60 * 60 * 1000;
  * Daily cron: pre-warms all-tone drafts for every overdue invoice so the
  * first user click of the day reads from cache (no LLM round-trip). Never
  * auto-sends — drafts wait for human approval in the add-on.
+ *
+ * Also processes due reminder_schedules (from reply-classification
+ * auto-scheduling): when a scheduled follow-up's date arrives, escalate the
+ * invoice's draft tone to 'firm' (the client broke a payment promise; the
+ * next reminder shouldn't read like the first one), and mark the schedule
+ * as fulfilled so the History card stops showing it as planned.
  */
 export async function processDailyReminders(
   supabase: SupabaseClient,
   user: UserRow,
   _settings: { auto_send_enabled: boolean }
-): Promise<{ sent: number; queued: number; skipped: number }> {
+): Promise<{ sent: number; queued: number; skipped: number; followups: number }> {
   void _settings;
   let queued = 0;
   let skipped = 0;
+  let followups = 0;
 
   const qb = await ensureQuickBooksToken(user.quickbooks_token);
   const gm = await ensureGmailToken(user.gmail_token);
   if (!qb || !gm) {
-    return { sent: 0, queued: 0, skipped: 0 };
+    return { sent: 0, queued: 0, skipped: 0, followups: 0 };
   }
 
   await supabase
@@ -42,6 +49,29 @@ export async function processDailyReminders(
     })
     .eq("id", user.id);
 
+  // Process due reminder_schedules first. Marking them fulfilled here means
+  // the rest of the cron's draft pre-warming for the same invoice will use
+  // the escalated tone. Done before the invoice loop, not after, so the
+  // schedule's escalation reaches the same-tick draft cache.
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const { data: dueSchedules } = await supabase
+    .from("reminder_schedules")
+    .select("id, invoice_id, scheduled_for, reason")
+    .eq("user_id", user.id)
+    .lte("scheduled_for", todayIso)
+    .is("fulfilled_at", null)
+    .is("cancelled_at", null);
+
+  const escalatedInvoiceIds = new Set<string>();
+  for (const sched of dueSchedules ?? []) {
+    if (sched.invoice_id) escalatedInvoiceIds.add(sched.invoice_id);
+    await supabase
+      .from("reminder_schedules")
+      .update({ fulfilled_at: new Date().toISOString() })
+      .eq("id", sched.id);
+    followups++;
+  }
+
   const { data: invoices, error } = await supabase
     .from("invoices")
     .select("*")
@@ -49,7 +79,7 @@ export async function processDailyReminders(
     .in("status", ["overdue_30", "overdue_60", "overdue_90"]);
 
   if (error || !invoices?.length) {
-    return { sent: 0, queued: 0, skipped: 0 };
+    return { sent: 0, queued: 0, skipped: 0, followups };
   }
 
   const senderName = displayNameFromEmail(user.email);
@@ -65,8 +95,13 @@ export async function processDailyReminders(
   };
 
   for (const inv of invoices) {
-    // Skip if cache is fresh — saves API quota when the cron runs more than once per day.
+    const isEscalated = escalatedInvoiceIds.has(inv.id);
+    // Cache freshness skip — but NEVER skip when there's a due schedule for
+    // this invoice. The whole point of the schedule was "regenerate the
+    // draft today with escalated tone"; trusting yesterday's cache would
+    // miss the escalation.
     if (
+      !isEscalated &&
       inv.draft_all_tones_at &&
       Date.now() - new Date(inv.draft_all_tones_at).getTime() < CACHE_FRESHNESS_MS
     ) {
@@ -85,17 +120,24 @@ export async function processDailyReminders(
       );
       const [friendly, professional, firm] = builds;
 
-      const autoTone = await computeAutoTone(
-        supabase,
-        user.id,
-        {
-          id: inv.id,
-          amount: Number(inv.amount),
-          days_overdue: inv.days_overdue,
-          client_email: inv.client_email,
-        },
-        toneSettings
-      );
+      // When a scheduled follow-up just came due, force the default tone to
+      // 'firm'. The client made a promise and missed (or is about to miss)
+      // it — opening with a friendly nudge again would read as a system
+      // that doesn't know what's going on. The other tones stay available
+      // in the all-tones cache so the merchant can still override.
+      const autoTone = isEscalated
+        ? "firm"
+        : await computeAutoTone(
+            supabase,
+            user.id,
+            {
+              id: inv.id,
+              amount: Number(inv.amount),
+              days_overdue: inv.days_overdue,
+              client_email: inv.client_email,
+            },
+            toneSettings
+          );
 
       await supabase
         .from("invoices")
@@ -134,5 +176,5 @@ export async function processDailyReminders(
     }
   }
 
-  return { sent: 0, queued, skipped };
+  return { sent: 0, queued, skipped, followups };
 }

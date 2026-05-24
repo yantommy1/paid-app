@@ -124,6 +124,22 @@ export async function GET(
     return true;
   });
 
+  // Dedupe reminders on (sent_to, tone, day). In production a user sends at
+  // most one reminder per cohort threshold per day, so a same-client +
+  // same-tone + same-day duplicate is always a test-click artifact (each
+  // Edit-in-Gmail tap creates a reminder_logs row optimistically because
+  // we can't detect Gmail sends reliably). Collapsing them on read mirrors
+  // production behavior — keep the latest in each group.
+  const rawReminders = remindersRes.data ?? [];
+  const seenReminderKeys = new Set<string>();
+  const dedupedReminders = rawReminders.filter((r) => {
+    const day = (r.created_at || "").slice(0, 10);
+    const key = `${r.sent_to || ""}|${r.tone || ""}|${day}`;
+    if (seenReminderKeys.has(key)) return false;
+    seenReminderKeys.add(key);
+    return true;
+  });
+
   return NextResponse.json({
     invoice: {
       id: inv.id,
@@ -138,7 +154,7 @@ export async function GET(
       quickbooksInvoiceId: inv.quickbooks_invoice_id,
       draftReadyAt: inv.draft_all_tones_at,
     },
-    reminders: remindersRes.data ?? [],
+    reminders: dedupedReminders,
     replies: dedupedReplies,
     schedules: dedupedSchedules,
     diagnostics: {

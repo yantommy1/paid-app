@@ -105,7 +105,7 @@ export async function GET(request: NextRequest) {
         }
       );
       results[uid] = {
-        reminders: `sent ${r.sent} queued ${r.queued} skipped ${r.skipped}`,
+        reminders: `sent ${r.sent} queued ${r.queued} skipped ${r.skipped} followups ${r.followups}`,
       };
       logInfo({
         route: "cron.daily",
@@ -114,6 +114,7 @@ export async function GET(request: NextRequest) {
         sent: r.sent,
         queued: r.queued,
         skipped: r.skipped,
+        followups: r.followups,
       });
     } catch (e) {
       results[uid] = { sync: e instanceof Error ? e.message : "error" };
