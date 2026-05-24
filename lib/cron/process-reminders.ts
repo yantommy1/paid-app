@@ -72,14 +72,61 @@ export async function processDailyReminders(
     followups++;
   }
 
-  const { data: invoices, error } = await supabase
+  // Include 'reminder_sent' invoices that have a due schedule. After the
+  // first reminder goes out, invoice.status flips to 'reminder_sent' and
+  // it drops out of the overdue_* set the cron normally processes.
+  // Without this, a scheduled follow-up's escalation branch can't fire
+  // (the invoice isn't in the loop), so the firm draft never gets
+  // pre-warmed for Aug 26 etc. — broken promise made by the Planned UI.
+  const escalatedIds = Array.from(escalatedInvoiceIds);
+  const statusFilter = ["overdue_30", "overdue_60", "overdue_90"];
+  let invoicesQuery = supabase
     .from("invoices")
     .select("*")
-    .eq("user_id", user.id)
-    .in("status", ["overdue_30", "overdue_60", "overdue_90"]);
+    .eq("user_id", user.id);
+  if (escalatedIds.length) {
+    // Postgrest .or() between an in-clause and an explicit id-list.
+    // Quote each uuid so commas in the value (not a real concern for
+    // uuids, but the format requires it) don't break parsing.
+    const idsCsv = escalatedIds.map((id) => `"${id}"`).join(",");
+    invoicesQuery = invoicesQuery.or(
+      `status.in.(${statusFilter.join(",")}),id.in.(${idsCsv})`
+    );
+  } else {
+    invoicesQuery = invoicesQuery.in("status", statusFilter);
+  }
+  const { data: invoices, error } = await invoicesQuery;
 
   if (error || !invoices?.length) {
     return { sent: 0, queued: 0, skipped: 0, followups };
+  }
+
+  // For each escalated invoice currently in 'reminder_sent' status, flip
+  // it back to the right overdue_X bucket so the home card cohorts
+  // surface it again. The schedule firing means "we're still chasing this"
+  // — the reminder_sent label was true yesterday, isn't accurate today.
+  for (const inv of invoices) {
+    if (
+      escalatedInvoiceIds.has(inv.id) &&
+      inv.status === "reminder_sent" &&
+      typeof inv.days_overdue === "number"
+    ) {
+      const newStatus =
+        inv.days_overdue >= 90
+          ? "overdue_90"
+          : inv.days_overdue >= 60
+          ? "overdue_60"
+          : inv.days_overdue >= 30
+          ? "overdue_30"
+          : "current";
+      if (newStatus !== "current") {
+        await supabase
+          .from("invoices")
+          .update({ status: newStatus })
+          .eq("id", inv.id);
+        inv.status = newStatus;
+      }
+    }
   }
 
   const senderName = displayNameFromEmail(user.email);
