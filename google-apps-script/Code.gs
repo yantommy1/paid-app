@@ -12,7 +12,7 @@
  */
 
 /** Deployed add-on version (bump when publishing a new deployment). */
-var VERSION = '1.6.0';
+var VERSION = '1.6.1';
 
 var PROP_API = 'PAID_API_BASE';
 var PROP_API_KEY = 'PAID_API_KEY';
@@ -2769,22 +2769,40 @@ function buildNotifyCard_(text, refreshFunctionName) {
  */
 function userFacingApiError_(statusCode, body) {
   var c = Number(statusCode) || 0;
+  // Try to extract a useful detail/error message from the response body so
+  // the user (and Tommy debugging) sees the actual cause instead of a
+  // generic "server error". Server routes return JSON with `error` and
+  // optional `detail` fields.
+  var detail = '';
+  try {
+    if (body) {
+      var parsed = JSON.parse(String(body));
+      if (parsed && typeof parsed === 'object') {
+        var msg = parsed.detail || parsed.error;
+        if (msg) detail = ': ' + String(msg).slice(0, 200);
+      }
+    }
+  } catch (parseErr) { /* not JSON — ignore */ }
+
   if (c === 401 || c === 403) {
-    return 'Paid rejected the request (auth). Reconnect from Settings.';
+    return 'Paid rejected the request (auth)' + detail + '. Reconnect from Settings.';
   }
   if (c === 404) {
-    return 'Paid endpoint missing (404). The server may be deploying — try again in a minute.';
+    return 'Paid endpoint missing (404)' + detail + '. The server may be deploying — try again in a minute.';
   }
   if (c === 429) {
-    return 'Paid is rate-limiting (429). Try again in a few seconds.';
+    return 'Paid is rate-limiting (429)' + detail + '. Try again in a few seconds.';
+  }
+  if (c === 502) {
+    return 'Upstream service failed' + detail + '. (Anthropic/QuickBooks/Stripe likely; try again shortly.)';
   }
   if (c >= 500 && c < 600) {
-    return 'Paid server error (' + c + '). Try again — if it persists, refresh the sidebar.';
+    return 'Paid server error (' + c + ')' + detail + '.';
   }
   if (c === 0) {
     return 'Could not reach Paid (network). Check your connection and try again.';
   }
-  return 'Paid request failed (HTTP ' + c + '). Try again.';
+  return 'Paid request failed (HTTP ' + c + ')' + detail + '.';
 }
 
 function classifyErrorKind_(statusCode, body) {

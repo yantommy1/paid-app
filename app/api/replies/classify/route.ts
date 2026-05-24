@@ -170,7 +170,19 @@ export async function POST(request: NextRequest) {
       invoiceContext,
     });
   } catch (e) {
-    return serverError(e instanceof Error ? e.message : "Classification failed");
+    // Surface the underlying LLM/network reason instead of a generic 500 so
+    // the add-on can show "Anthropic rate-limited" / "API key missing" / etc.
+    logError({
+      route: "replies.classify",
+      event: "classify_call_failed",
+      userId: ctx.user.id,
+      err: e,
+    });
+    const detail = e instanceof Error ? e.message : "Classification failed";
+    return NextResponse.json(
+      { error: "Classification failed", detail },
+      { status: 502 }
+    );
   }
 
   // Persist the classification. Store the normalized email so future
@@ -187,11 +199,34 @@ export async function POST(request: NextRequest) {
     suggested_action: result.suggestedAction,
   };
 
-  const { data: classificationRow } = await supabase
+  const { data: classificationRow, error: insertErr } = await supabase
     .from("reply_classifications")
     .insert(insert)
     .select("id")
     .single();
+
+  if (insertErr) {
+    logError({
+      route: "replies.classify",
+      event: "insert_failed",
+      userId: ctx.user.id,
+      err: insertErr.message,
+      insert,
+    });
+    return NextResponse.json(
+      { error: "Could not save classification", detail: insertErr.message },
+      { status: 500 }
+    );
+  }
+
+  logInfo({
+    route: "replies.classify",
+    event: "inserted",
+    userId: ctx.user.id,
+    classificationId: classificationRow?.id,
+    invoiceId,
+    classification: result.classification,
+  });
 
   // Auto-schedule follow-ups based on the classification.
   let scheduledFor: string | null = null;
