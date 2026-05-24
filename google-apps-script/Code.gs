@@ -12,7 +12,7 @@
  */
 
 /** Deployed add-on version (bump when publishing a new deployment). */
-var VERSION = '1.6.5';
+var VERSION = '1.6.6';
 
 var PROP_API = 'PAID_API_BASE';
 var PROP_API_KEY = 'PAID_API_KEY';
@@ -2216,13 +2216,36 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
   if (!clientEmailForClassify && replyContext && replyContext.isInbox && ownAddr) {
     clientEmailForClassify = ownAddr;
   }
+  // Pre-fetch contact activity for each participant ONCE up front. Two
+  // benefits: (1) the per-email loop later reuses the cached fetch instead
+  // of round-tripping again, (2) we can gate the classify section on
+  // "this contact has at least one invoice with us" before even thinking
+  // about classifying — Paid has no business asking to classify a Wayfair
+  // delivery survey or a marketing newsletter.
+  var contactsByEmail = {};
+  var anyContactHasInvoices = false;
+  for (var ce = 0; ce < emails.length; ce++) {
+    var ceEmail = emails[ce];
+    var ceRes = fetchContactActivityCached_(ceEmail);
+    contactsByEmail[ceEmail] = ceRes;
+    if (ceRes && ceRes.statusCode === 200) {
+      try {
+        var ceData = JSON.parse(ceRes.body);
+        if (ceData && Array.isArray(ceData.invoices) && ceData.invoices.length > 0) {
+          anyContactHasInvoices = true;
+        }
+      } catch (ceParseErr) { /* ignore */ }
+    }
+  }
+
   // New gate: classify any RECEIVED message (INBOX label present), even
-  // when the From: address is the merchant's own. This handles the
-  // self-reply test loop (Tommy replies to his own reminder from the same
-  // Gmail account) AND the case where a client replies from an alias of
-  // the merchant's domain. Outbound-only messages (SENT folder, no INBOX)
-  // still skip — those are reminders the merchant sent, not replies.
+  // when the From: address is the merchant's own — BUT only when at least
+  // one participant actually has invoices with us. Without that second
+  // condition, Paid was offering "Classify this reply" on every random
+  // thread (delivery surveys, newsletters, automated notifications), which
+  // was both noise and an LLM-spend risk if the user ever tapped it.
   var shouldAutoClassify =
+    anyContactHasInvoices &&
     replyContext &&
     replyContext.messageId &&
     replyContext.fromEmail &&
@@ -2234,7 +2257,13 @@ function buildCardsForEmails_(emails, contextualRefreshFn, replyContext) {
   // are still keyed per-message, which is a correctness regression but
   // doesn't break the UI flow.
   var dedupeKey = (replyContext && replyContext.gmailThreadId) || (replyContext && replyContext.messageId);
-  if (replyContext && replyContext.messageId) {
+  // Gate the WHOLE classify section behind "at least one participant has
+  // invoices" so unrelated threads (Wayfair delivery survey, newsletters,
+  // anything not tied to a customer with an active invoice) get no card
+  // chrome from us at all. The contextual handler still fires — we just
+  // skip directly to the per-email contact summary, which renders the
+  // "No invoices on record" line cleanly.
+  if (anyContactHasInvoices && replyContext && replyContext.messageId) {
     var prior = fetchPriorClassificationsForThread_(dedupeKey);
 
     // Cache miss + actually-inbound message: kick off auto-classification once.
